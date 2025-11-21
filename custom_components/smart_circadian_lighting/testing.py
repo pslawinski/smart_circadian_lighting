@@ -158,13 +158,9 @@ async def async_run_test_cycle(light: CircadianLight, duration: int) -> None:
 
     # Save original brightness
     light_state = light._hass.states.get(light._light_entity_id)
-    original_brightness = (
-        light_state.attributes.get(ATTR_BRIGHTNESS) if light_state else None
-    )
 
     # Ensure the component isn't in a manual override state to start
-    if light._is_overridden:
-        await light.async_clear_manual_override()
+    if light._is_overridden:        await light.async_clear_manual_override()
 
     # Force update to night brightness at start of test
     night_brightness_255 = _convert_percent_to_255(light._config["night_brightness"])
@@ -235,7 +231,6 @@ async def _async_run_single_test_phase(
             )
             continue
 
-        light_state = light._hass.states.get(light._light_entity_id)
         if light_state and light_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
             _LOGGER.debug(

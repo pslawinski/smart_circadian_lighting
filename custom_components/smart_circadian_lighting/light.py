@@ -390,7 +390,6 @@ class CircadianLight(LightEntity):
         if self._test_mode:
             return
 
-        now = datetime.now()
         is_transition = self.circadian_mode in ["morning_transition", "evening_transition"]
 
         # Check if color temperature is in transition

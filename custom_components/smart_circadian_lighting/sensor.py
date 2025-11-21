@@ -159,7 +159,7 @@ class CircadianBrightnessGraphSensor(SensorEntity):
         day_brightness_255 = _convert_percent_to_255(self._config["day_brightness"])
         night_brightness_255 = _convert_percent_to_255(self._config["night_brightness"])
 
-        for dt in sorted(list(key_times)):
+        for dt in sorted(key_times):
             brightness = circadian_logic.calculate_brightness_for_time(
                 dt,
                 {},
@@ -171,7 +171,7 @@ class CircadianBrightnessGraphSensor(SensorEntity):
             )
             brightness_points.add((dt.isoformat(), brightness))
 
-        return sorted(list(brightness_points))
+        return sorted(brightness_points)
 
     async def async_added_to_hass(self) -> None:
         """Register update listener."""

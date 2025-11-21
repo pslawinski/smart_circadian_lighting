@@ -20,11 +20,7 @@ from .const import (
     CONF_MORNING_END_TIME,
     CONF_MORNING_START_TIME,
     CONF_NIGHT_COLOR_TEMP_KELVIN,
-    CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
 )
-
-# Ensure constant is defined to fix NameError
-CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN = "sunrise_sunset_color_temp_kelvin"
 
 _LOGGER = logging.getLogger(__name__)
 

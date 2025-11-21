@@ -1,4 +1,5 @@
 
+import datetime
 import logging
 from typing import Any
 
@@ -166,17 +167,6 @@ def _get_color_time_schema(
 ) -> dict:
     """Generate the schema for a single color time setting."""
     # Determine the transition name for descriptions
-    if "morning_start" in type_key:
-        transition_name = "morning color temperature transition start"
-    elif "morning_end" in type_key:
-        transition_name = "morning color temperature transition end"
-    elif "evening_start" in type_key:
-        transition_name = "evening color temperature transition start"
-    elif "evening_end" in type_key:
-        transition_name = "evening color temperature transition end"
-    else:
-        transition_name = "color temperature transition"
-
     # For morning_end and evening_start, when sun sync, auto-use sunrise/sunset
     include_sun_event = not (
         ("morning_start" in type_key or "morning_end" in type_key or "evening_start" in type_key or "evening_end" in type_key) and
@@ -495,7 +485,7 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
                     if len(parts) >= 3:
                         offset_str = parts[2]
                         try:
-                            parsed_offset = dt_util.parse_duration(offset_str)
+                            parsed_offset = datetime.timedelta(hours=int(offset_str.split(":")[0]), minutes=int(offset_str.split(":")[1]), seconds=int(offset_str.split(":")[2]))
                             total_seconds = int(parsed_offset.total_seconds())
                             abs_seconds = abs(total_seconds)
                             hours = abs_seconds // 3600
