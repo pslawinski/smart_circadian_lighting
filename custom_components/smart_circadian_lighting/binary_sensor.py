@@ -1,10 +1,10 @@
 import logging
+
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_OVERRIDE_STATE_CHANGED
 
@@ -35,7 +35,7 @@ class CircadianOverrideSensor(BinarySensorEntity):
         self._attr_name = "Manual Override"
         self._attr_unique_id = f"{light.unique_id}_override_sensor"
         self._attr_device_info = light.device_info
-        
+
     @property
     def is_on(self) -> bool:
         """Return the state of the sensor."""
@@ -45,8 +45,8 @@ class CircadianOverrideSensor(BinarySensorEntity):
         """Register callbacks."""
         self.async_on_remove(
             async_dispatcher_connect(
-                self.hass, 
-                f"{SIGNAL_OVERRIDE_STATE_CHANGED}_{self._light.entity_id}", 
+                self.hass,
+                f"{SIGNAL_OVERRIDE_STATE_CHANGED}_{self._light.entity_id}",
                 self.async_write_ha_state
             )
         )

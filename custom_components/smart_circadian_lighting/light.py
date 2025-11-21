@@ -1,40 +1,44 @@
-import logging
 import asyncio
-from datetime import time, datetime, timedelta
+import logging
+from datetime import datetime, timedelta
+
 from homeassistant.components.light import (
-    LightEntity,
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
     ColorMode,
+    LightEntity,
     LightEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, STATE_ON
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.storage import Store
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
-from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers import entity_registry as er
 
+from . import circadian_logic, state_management, testing
+from .circadian_logic import _convert_percent_to_255
+from .color_temp_logic import (
+    _is_time_in_period,
+    get_color_temp_schedule,
+    get_ct_at_time,
+    kelvin_to_mired,
+)
 from .const import (
     DOMAIN,
-    SIGNAL_CIRCADIAN_LIGHT_TESTING_STATE_CHANGED,
-    TRANSITION_UPDATE_INTERVAL,
-    STORAGE_VERSION,
-    STORAGE_KEY,
     LIGHT_UPDATE_TIMEOUT,
-    MIN_UPDATE_INTERVAL,
     MIN_COLOR_TEMP_CHANGE_FOR_UPDATE,
+    MIN_UPDATE_INTERVAL,
+    SIGNAL_CIRCADIAN_LIGHT_TESTING_STATE_CHANGED,
+    STORAGE_KEY,
+    STORAGE_VERSION,
+    TRANSITION_UPDATE_INTERVAL,
 )
-from . import circadian_logic
-from .circadian_logic import _convert_percent_to_255
-from .color_temp_logic import get_color_temp_schedule, get_ct_at_time, kelvin_to_mired, _is_time_in_period
-from . import state_management
-from . import testing
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -739,7 +743,7 @@ class CircadianLight(LightEntity):
                 timeout=LIGHT_UPDATE_TIMEOUT,
             )
             _LOGGER.debug(f"[{self._light_entity_id}] Entity update completed for {self.name}")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.warning(
                 f"[{self._light_entity_id}] Timeout requesting entity update for {self.name}."
             )
@@ -852,7 +856,7 @@ class CircadianLight(LightEntity):
             if target_color_temp is not None:
                 self._last_set_color_temp = target_color_temp
             self._first_update_done = True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.warning(f"[{self._light_entity_id}] Timeout occurred while updating light {self._light_entity_id}.")
         except HomeAssistantError as e:
             _LOGGER.error(f"[{self._light_entity_id}] Error updating light {self._light_entity_id}: {e}")

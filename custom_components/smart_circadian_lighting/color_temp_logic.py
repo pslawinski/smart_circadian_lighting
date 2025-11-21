@@ -1,30 +1,26 @@
 """Core logic for color temperature adjustments in Smart Circadian Lighting."""
 
-import asyncio
-from datetime import time, timedelta
 import logging
-from typing import Any, Coroutine, Optional, Tuple, Union
+from datetime import time, timedelta
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.sun import get_astral_event_next
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    TRANSITION_SAFETY_BUFFER,
-    LIGHT_UPDATE_TIMEOUT,
-    CONF_COLOR_MORNING_END_TIME,
-    CONF_COLOR_MORNING_START_TIME,
+    CONF_COLOR_CURVE_TYPE,
     CONF_COLOR_EVENING_END_TIME,
     CONF_COLOR_EVENING_START_TIME,
-    CONF_MORNING_START_TIME,
-    CONF_MORNING_END_TIME,
-    CONF_EVENING_START_TIME,
+    CONF_COLOR_MORNING_END_TIME,
+    CONF_COLOR_MORNING_START_TIME,
     CONF_EVENING_END_TIME,
-    CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
+    CONF_EVENING_START_TIME,
     CONF_MIDDAY_COLOR_TEMP_KELVIN,
+    CONF_MORNING_END_TIME,
+    CONF_MORNING_START_TIME,
     CONF_NIGHT_COLOR_TEMP_KELVIN,
-    CONF_COLOR_CURVE_TYPE,
-    DEFAULT_COLOR_CURVE_TYPE
+    CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
 )
 
 # Ensure constant is defined to fix NameError
@@ -46,7 +42,7 @@ def _parse_time(
     time_str: str,
     brightness_config_time: str,
     default_time_str: str,
-) -> Optional[time]:
+) -> time | None:
     """Parse a time string that can be 'sync', a fixed time, or based on sun events."""
     if not time_str:
         return None
@@ -100,7 +96,7 @@ def _parse_time(
 def get_color_temp_schedule(
     hass: HomeAssistant,
     config: dict[str, Any],
-) -> Optional[dict[str, Union[time, int]]]:
+) -> dict[str, time | int] | None:
     """Generate a 24-hour color temperature schedule."""
     if not config.get("color_temp_enabled"):
         return None
@@ -227,10 +223,10 @@ def interpolate_temp(start_temp: int, end_temp: int, progress: float, curve_type
 
 
 def get_ct_at_time(
-    schedule: dict[str, Union[time, int]],
+    schedule: dict[str, time | int],
     now: time,
     debug_enable: bool = True,
-) -> Optional[int]:
+) -> int | None:
     """Get the target color temperature at a specific time based on the schedule."""
     if not schedule:
         return None

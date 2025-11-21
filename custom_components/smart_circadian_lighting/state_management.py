@@ -1,13 +1,14 @@
 from __future__ import annotations
+
 import logging
-from datetime import time, datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.components.light import ATTR_BRIGHTNESS
-from homeassistant.util import dt as dt_util
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
+from homeassistant.util import dt as dt_util
 
 from .const import SIGNAL_OVERRIDE_STATE_CHANGED
 
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def check_override_expiration(light: "CircadianLight") -> bool:
+def check_override_expiration(light: CircadianLight) -> bool:
     """Check if the current manual override has expired."""
     if not light._is_overridden or not light._override_timestamp:
         return False
@@ -66,7 +67,7 @@ def check_override_expiration(light: "CircadianLight") -> bool:
     return False
 
 
-def _calculate_next_clear_time(light: "CircadianLight") -> datetime:
+def _calculate_next_clear_time(light: CircadianLight) -> datetime:
     """Calculate the next time when the override should be cleared."""
     if hasattr(light, '_test_now'):
         now = light._test_now
@@ -110,7 +111,7 @@ def _calculate_next_clear_time(light: "CircadianLight") -> datetime:
     return next_clear_time
 
 
-async def _async_clear_override_callback(light: "CircadianLight") -> None:
+async def _async_clear_override_callback(light: CircadianLight) -> None:
     """Callback to clear an expired override."""
     if light._is_overridden:
         _LOGGER.info(f"[{light._light_entity_id}] Scheduled override expiration triggered for {light.name}")
@@ -121,14 +122,14 @@ async def _async_clear_override_callback(light: "CircadianLight") -> None:
         await light._set_exact_circadian_targets()
 
 
-def _create_clear_override_callback(light: "CircadianLight"):
+def _create_clear_override_callback(light: CircadianLight):
     """Create a callback function that clears override for the specific light."""
     async def callback():
         await _async_clear_override_callback(light)
     return callback
 
 
-async def async_save_override_state(light: "CircadianLight") -> None:
+async def async_save_override_state(light: CircadianLight) -> None:
     """Save the current override state to the store."""
     light._override_timestamp = dt_util.utcnow() if light._is_overridden else None
     saved_states = await light._store.async_load() or {}
@@ -169,7 +170,7 @@ async def async_save_override_state(light: "CircadianLight") -> None:
     async_dispatcher_send(light.hass, f"{SIGNAL_OVERRIDE_STATE_CHANGED}_{light.entity_id}")
 
 
-async def async_load_override_state(light: "CircadianLight") -> None:
+async def async_load_override_state(light: CircadianLight) -> None:
     """Load saved override state and check for expiration."""
     saved_states = await light._store.async_load()
     if saved_states and light._light_entity_id in saved_states:
@@ -191,7 +192,7 @@ async def async_load_override_state(light: "CircadianLight") -> None:
             await async_save_override_state(light)
 
 
-async def async_clear_manual_override(light: "CircadianLight") -> None:
+async def async_clear_manual_override(light: CircadianLight) -> None:
     """Clear the manual override and force a brightness update."""
     _LOGGER.debug(f"[{light._light_entity_id}] Clearing manual override for {light.name}")
     if light._is_overridden:
@@ -205,7 +206,7 @@ async def async_clear_manual_override(light: "CircadianLight") -> None:
 
 
 async def _check_for_manual_override(
-    light: "CircadianLight", old_brightness: int | None, new_brightness: int | None, now: datetime
+    light: CircadianLight, old_brightness: int | None, new_brightness: int | None, now: datetime
 ) -> None:
     """Check for a manual brightness change that should trigger an override."""
     from . import circadian_logic  # Defer import to avoid circular dependency
@@ -263,7 +264,7 @@ async def _check_for_manual_override(
         light._event_throttle_time = now + timedelta(seconds=5)
 
 
-async def handle_entity_state_changed(light: "CircadianLight", event: Any) -> None:
+async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None:
     """Handle state changes of the underlying entity."""
     now = dt_util.utcnow()
     old_state = event.data.get("old_state")

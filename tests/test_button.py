@@ -1,7 +1,7 @@
 """Tests for button.py"""
 
 import sys
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 # Add the parent directory to sys.path so we can import the actual module
 sys.path.insert(0, '..')
@@ -30,8 +30,8 @@ mock_modules = [
 for module in mock_modules:
     sys.modules[module] = MagicMock()
 
+
 import pytest
-from unittest.mock import patch
 
 # Test the button logic without instantiating the real button class
 

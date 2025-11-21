@@ -1,17 +1,16 @@
 from __future__ import annotations
-import logging
-import asyncio
-from datetime import time, datetime, timedelta
-from typing import TYPE_CHECKING, Coroutine
 
-from homeassistant.helpers.event import async_call_later
+import asyncio
+import logging
+from datetime import datetime, time, timedelta
+from typing import TYPE_CHECKING
+
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-
+from homeassistant.helpers.event import async_call_later
 
 from . import circadian_logic
 from .circadian_logic import _convert_percent_to_255
-from .color_temp_logic import kelvin_to_mired
 
 if TYPE_CHECKING:
     from .light import CircadianLight
@@ -20,7 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def start_test_transition(
-    light: "CircadianLight",
+    light: CircadianLight,
     mode: str,
     duration: int,
     hold_duration: int | None,
@@ -77,7 +76,7 @@ async def start_test_transition(
         )
 
 
-async def cancel_test_transition(light: "CircadianLight") -> None:
+async def cancel_test_transition(light: CircadianLight) -> None:
     """Cancel a test transition."""
     light._test_mode = False
     if light._test_mode_unsub:
@@ -90,7 +89,7 @@ async def cancel_test_transition(light: "CircadianLight") -> None:
 
 
 async def set_temporary_transition(
-    light: "CircadianLight",
+    light: CircadianLight,
     mode: str,
     start_time: str | None,
     end_time: str | None,
@@ -114,7 +113,7 @@ async def set_temporary_transition(
         await light.async_update_brightness(force_update=True)
 
 
-async def end_current_transition(light: "CircadianLight") -> None:
+async def end_current_transition(light: CircadianLight) -> None:
     """End the current transition."""
     now = datetime.now()
     is_morning = circadian_logic.is_morning_transition(
@@ -136,7 +135,7 @@ async def end_current_transition(light: "CircadianLight") -> None:
     light._temp_transition_override = {}
 
 
-async def async_run_test_cycle_all(lights: list["CircadianLight"], duration: int) -> None:
+async def async_run_test_cycle_all(lights: list[CircadianLight], duration: int) -> None:
     """Run a test cycle for all lights concurrently."""
     _LOGGER.info(f"Starting test cycle for all lights for {duration} seconds...")
     for light in lights:
@@ -146,7 +145,7 @@ async def async_run_test_cycle_all(lights: list["CircadianLight"], duration: int
     _LOGGER.info("All test cycles completed.")
 
 
-async def async_run_test_cycle(light: "CircadianLight", duration: int) -> None:
+async def async_run_test_cycle(light: CircadianLight, duration: int) -> None:
     """Run a test cycle of brightness changes using the component's real scheduler."""
     if light.is_testing:
         _LOGGER.warning(f"[{light._light_entity_id}] Test cycle for {light.name} is already running.")
@@ -199,7 +198,7 @@ async def async_run_test_cycle(light: "CircadianLight", duration: int) -> None:
 
 
 async def _async_run_single_test_phase(
-    light: "CircadianLight", mode: str, duration: int
+    light: CircadianLight, mode: str, duration: int
 ) -> None:
     """Run a single phase of the test cycle by leveraging the main scheduler."""
     if light._test_cancelled:
@@ -288,7 +287,7 @@ async def _async_run_single_test_phase(
     light._temp_transition_override = {}
 
 
-async def async_cancel_test_cycle_all(lights: list["CircadianLight"]) -> None:
+async def async_cancel_test_cycle_all(lights: list[CircadianLight]) -> None:
     """Cancel all running test cycles."""
     _LOGGER.info("Cancelling all running test cycles.")
     for light in lights:
@@ -296,7 +295,7 @@ async def async_cancel_test_cycle_all(lights: list["CircadianLight"]) -> None:
             await async_cancel_test_cycle(light)
 
 
-async def async_cancel_test_cycle(light: "CircadianLight") -> None:
+async def async_cancel_test_cycle(light: CircadianLight) -> None:
     """Cancel the running test cycle."""
     if not light.is_testing:
         _LOGGER.warning(f"[{light._light_entity_id}] No test cycle is currently running for {light.name}.")

@@ -30,9 +30,11 @@ mock_modules = [
 for module in mock_modules:
     sys.modules[module] = MagicMock()
 
-import pytest
 from datetime import datetime, time, timedelta
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
+
+import pytest
+
 
 # Copied functions from color_temp_logic.py for testing
 def kelvin_to_mired(kelvin: float) -> int:

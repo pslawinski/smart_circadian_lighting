@@ -7,13 +7,13 @@ from typing import cast
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import DOMAIN, DEBUG_FEATURES, SIGNAL_CIRCADIAN_LIGHT_TESTING_STATE_CHANGED
-from .light import CircadianLight
 from . import testing
+from .const import DEBUG_FEATURES, DOMAIN, SIGNAL_CIRCADIAN_LIGHT_TESTING_STATE_CHANGED
+from .light import CircadianLight
 
 _LOGGER = logging.getLogger(__name__)
 

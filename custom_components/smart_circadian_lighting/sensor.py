@@ -1,6 +1,6 @@
-import logging
 import hashlib
-from datetime import time, datetime, timedelta
+import logging
+from datetime import datetime, time, timedelta
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -8,13 +8,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import (
-    DOMAIN,
-    CONF_COLOR_TEMP_ENABLED
-)
 from . import circadian_logic
 from .circadian_logic import _convert_percent_to_255
-from .color_temp_logic import get_color_temp_schedule, get_ct_at_time, _is_time_in_period
+from .color_temp_logic import _is_time_in_period, get_color_temp_schedule, get_ct_at_time
+from .const import CONF_COLOR_TEMP_ENABLED, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 

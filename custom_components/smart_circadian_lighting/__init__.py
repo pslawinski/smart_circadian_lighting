@@ -62,10 +62,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Ensure color temp defaults are set if enabled
     if config.get("color_temp_enabled"):
         from .const import (
-            DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
+            DEFAULT_COLOR_CURVE_TYPE,
             DEFAULT_MIDDAY_COLOR_TEMP_KELVIN,
             DEFAULT_NIGHT_COLOR_TEMP_KELVIN,
-            DEFAULT_COLOR_CURVE_TYPE,
+            DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
         )
         config.setdefault("sunrise_sunset_color_temp_kelvin", DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN)
         config.setdefault("midday_color_temp_kelvin", DEFAULT_MIDDAY_COLOR_TEMP_KELVIN)

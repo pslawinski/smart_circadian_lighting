@@ -1,7 +1,7 @@
 """Tests for state_management.py override logic."""
 
 import sys
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Mock HA modules before importing
 mock_modules = [
@@ -42,6 +42,7 @@ sys.modules['homeassistant.util.dt'].parse_datetime = mock_parse_datetime
 
 # Also mock the dt_util import directly
 import sys
+
 dt_util_mock = MagicMock()
 dt_util_mock.parse_datetime = mock_parse_datetime
 dt_util_mock.now = MagicMock()
@@ -50,16 +51,13 @@ sys.modules['homeassistant.util'] = MagicMock()
 sys.modules['homeassistant.util'].dt = dt_util_mock
 
 
+from datetime import datetime, time, timedelta
+
 import pytest
 import pytest_asyncio
-from datetime import datetime, time, timedelta
-from unittest.mock import patch, AsyncMock
-from custom_components.smart_circadian_lighting.light import CircadianLight
-from custom_components.smart_circadian_lighting.const import DOMAIN
+
+from custom_components.smart_circadian_lighting import circadian_logic, state_management
 from custom_components.smart_circadian_lighting.circadian_logic import _convert_percent_to_255
-from custom_components.smart_circadian_lighting import circadian_logic
-from custom_components.smart_circadian_lighting.color_temp_logic import get_ct_at_time
-from custom_components.smart_circadian_lighting import state_management
 
 # Define HA constants (mocked environment interferes with imports)
 ATTR_BRIGHTNESS = "brightness"
@@ -353,7 +351,9 @@ class TestCheckOverrideExpiration:
 
     def test_calculate_brightness_for_time_with_offset(self):
         """Test that calculate_brightness_for_time with time offset produces intermediate values during transitions."""
-        from custom_components.smart_circadian_lighting.circadian_logic import calculate_brightness_for_time
+        from custom_components.smart_circadian_lighting.circadian_logic import (
+            calculate_brightness_for_time,
+        )
 
         config = {
             "morning_start_time": "06:00:00",

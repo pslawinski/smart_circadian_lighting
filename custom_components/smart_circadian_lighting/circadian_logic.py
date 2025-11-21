@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 import logging
 import time
-from datetime import time, datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from .const import (
@@ -111,7 +112,7 @@ def get_progress(current: time, start: time, end: time) -> float:
         if now_ts < start_ts:
             now_ts += 24 * 3600
         end_ts += 24 * 3600
-    
+
     total_seconds = end_ts - start_ts
     if total_seconds <= 0:
         return 1.0
@@ -200,7 +201,7 @@ def calculate_brightness(
     now = datetime.now()
     if time_offset_seconds > 0:
         now += timedelta(seconds=time_offset_seconds)
-    
+
     return calculate_brightness_for_time(
         now,
         temp_transition_override,
@@ -334,7 +335,7 @@ def get_circadian_update_info(
         if total_brightness_change > 0:
             # Determine the number of steps
             num_steps = total_brightness_change / MIN_BRIGHTNESS_CHANGE_FOR_UPDATE
-            
+
             # Calculate the dynamic update interval
             dynamic_interval = max(
                 MIN_UPDATE_INTERVAL, transition_duration / num_steps
@@ -359,7 +360,7 @@ def get_circadian_update_info(
                 transition = 0
             else:
                 transition = hardware_transition
-        
+
         # Store the update time
         last_update_times[light_entity_id] = now
 

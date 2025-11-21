@@ -30,8 +30,10 @@ mock_modules = [
 for module in mock_modules:
     sys.modules[module] = MagicMock()
 
-import pytest
 from datetime import datetime, time
+
+import pytest
+
 
 # Copied functions from circadian_logic.py for testing
 def _convert_percent_to_255(percent: float) -> int:
@@ -50,7 +52,7 @@ def get_progress(current: time, start: time, end: time) -> float:
         if now_ts < start_ts:
             now_ts += 24 * 3600
         end_ts += 24 * 3600
-    
+
     total_seconds = end_ts - start_ts
     if total_seconds <= 0:
         return 1.0
@@ -60,10 +62,10 @@ def get_progress(current: time, start: time, end: time) -> float:
 def get_circadian_mode(dt: datetime, temp_transition_override: dict[str, any], config: dict[str, any]) -> str:
     """Determine the circadian mode for a specific time."""
     current_time = dt.time()
-    morning_start_time = time.fromisoformat(config[f"morning_start_time"])
-    morning_end_time = time.fromisoformat(config[f"morning_end_time"])
-    evening_start_time = time.fromisoformat(config[f"evening_start_time"])
-    evening_end_time = time.fromisoformat(config[f"evening_end_time"])
+    morning_start_time = time.fromisoformat(config["morning_start_time"])
+    morning_end_time = time.fromisoformat(config["morning_end_time"])
+    evening_start_time = time.fromisoformat(config["evening_start_time"])
+    evening_end_time = time.fromisoformat(config["evening_end_time"])
 
     if _is_time_in_period(current_time, morning_start_time, morning_end_time):
         return "morning_transition"
@@ -85,10 +87,10 @@ def calculate_brightness_for_time(dt: datetime, temp_transition_override: dict[s
     """Calculate the target brightness for a specific time."""
     current_time = dt.time()
 
-    morning_start_time = time.fromisoformat(config[f"morning_start_time"])
-    morning_end_time = time.fromisoformat(config[f"morning_end_time"])
-    evening_start_time = time.fromisoformat(config[f"evening_start_time"])
-    evening_end_time = time.fromisoformat(config[f"evening_end_time"])
+    morning_start_time = time.fromisoformat(config["morning_start_time"])
+    morning_end_time = time.fromisoformat(config["morning_end_time"])
+    evening_start_time = time.fromisoformat(config["evening_start_time"])
+    evening_end_time = time.fromisoformat(config["evening_end_time"])
 
     night_brightness = night_brightness_255
     day_brightness = day_brightness_255

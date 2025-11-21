@@ -1,69 +1,70 @@
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.core import callback, HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import entity_registry as er, selector
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import selector
 
 from .const import (
-    DOMAIN,
-    DEFAULT_NIGHT_BRIGHTNESS,
-    DEFAULT_DAY_BRIGHTNESS,
-    DEFAULT_MANUAL_OVERRIDE_THRESHOLD,
-    DEFAULT_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD,
-    DEFAULT_MORNING_START_TIME,
-    DEFAULT_MORNING_END_TIME,
-    DEFAULT_EVENING_START_TIME,
-    DEFAULT_EVENING_END_TIME,
-    DEFAULT_MORNING_OVERRIDE_CLEAR_TIME,
-    DEFAULT_EVENING_OVERRIDE_CLEAR_TIME,
-    DEFAULT_COLOR_TEMP_ENABLED,
-    DEFAULT_NIGHT_COLOR_TEMP_KELVIN,
-    DEFAULT_MIDDAY_COLOR_TEMP_KELVIN,
-    DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
-    DEFAULT_COLOR_CURVE_TYPE,
-    CONF_LIGHTS,
-    CONF_MORNING_START_TIME,
-    CONF_MORNING_END_TIME,
-    CONF_EVENING_START_TIME,
-    CONF_EVENING_END_TIME,
-    CONF_NIGHT_BRIGHTNESS,
-    CONF_DAY_BRIGHTNESS,
-    CONF_MANUAL_OVERRIDE_THRESHOLD,
-    CONF_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD,
-    CONF_MORNING_OVERRIDE_CLEAR_TIME,
-    CONF_EVENING_OVERRIDE_CLEAR_TIME,
-    CONF_COLOR_TEMP_ENABLED,
-    CONF_NIGHT_COLOR_TEMP_KELVIN,
-    CONF_MIDDAY_COLOR_TEMP_KELVIN,
-    CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
     CONF_COLOR_CURVE_TYPE,
-    CONF_COLOR_MORNING_START_TIME,
-    CONF_COLOR_MORNING_END_TIME,
-    CONF_COLOR_EVENING_START_TIME,
-    CONF_COLOR_EVENING_END_TIME,
-    CONF_COLOR_TIME_TYPE_SYNC,
-    CONF_COLOR_TIME_TYPE_FIXED,
-    CONF_COLOR_TIME_TYPE_SUN,
-    CONF_COLOR_MORNING_START_TYPE,
-    CONF_COLOR_MORNING_START_FIXED_TIME,
-    CONF_COLOR_MORNING_START_SUN_EVENT,
-    CONF_COLOR_MORNING_START_SUN_OFFSET,
-    CONF_COLOR_MORNING_END_TYPE,
-    CONF_COLOR_MORNING_END_FIXED_TIME,
-    CONF_COLOR_MORNING_END_SUN_EVENT,
-    CONF_COLOR_MORNING_END_SUN_OFFSET,
-    CONF_COLOR_EVENING_START_TYPE,
-    CONF_COLOR_EVENING_START_FIXED_TIME,
-    CONF_COLOR_EVENING_START_SUN_EVENT,
-    CONF_COLOR_EVENING_START_SUN_OFFSET,
-    CONF_COLOR_EVENING_END_TYPE,
     CONF_COLOR_EVENING_END_FIXED_TIME,
     CONF_COLOR_EVENING_END_SUN_EVENT,
     CONF_COLOR_EVENING_END_SUN_OFFSET,
+    CONF_COLOR_EVENING_END_TIME,
+    CONF_COLOR_EVENING_END_TYPE,
+    CONF_COLOR_EVENING_START_FIXED_TIME,
+    CONF_COLOR_EVENING_START_SUN_EVENT,
+    CONF_COLOR_EVENING_START_SUN_OFFSET,
+    CONF_COLOR_EVENING_START_TIME,
+    CONF_COLOR_EVENING_START_TYPE,
+    CONF_COLOR_MORNING_END_FIXED_TIME,
+    CONF_COLOR_MORNING_END_SUN_EVENT,
+    CONF_COLOR_MORNING_END_SUN_OFFSET,
+    CONF_COLOR_MORNING_END_TIME,
+    CONF_COLOR_MORNING_END_TYPE,
+    CONF_COLOR_MORNING_START_FIXED_TIME,
+    CONF_COLOR_MORNING_START_SUN_EVENT,
+    CONF_COLOR_MORNING_START_SUN_OFFSET,
+    CONF_COLOR_MORNING_START_TIME,
+    CONF_COLOR_MORNING_START_TYPE,
+    CONF_COLOR_TEMP_ENABLED,
+    CONF_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD,
+    CONF_COLOR_TIME_TYPE_FIXED,
+    CONF_COLOR_TIME_TYPE_SUN,
+    CONF_COLOR_TIME_TYPE_SYNC,
+    CONF_DAY_BRIGHTNESS,
+    CONF_EVENING_END_TIME,
+    CONF_EVENING_OVERRIDE_CLEAR_TIME,
+    CONF_EVENING_START_TIME,
+    CONF_LIGHTS,
+    CONF_MANUAL_OVERRIDE_THRESHOLD,
+    CONF_MIDDAY_COLOR_TEMP_KELVIN,
+    CONF_MORNING_END_TIME,
+    CONF_MORNING_OVERRIDE_CLEAR_TIME,
+    CONF_MORNING_START_TIME,
+    CONF_NIGHT_BRIGHTNESS,
+    CONF_NIGHT_COLOR_TEMP_KELVIN,
+    CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
+    DEFAULT_COLOR_CURVE_TYPE,
+    DEFAULT_COLOR_TEMP_ENABLED,
+    DEFAULT_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD,
+    DEFAULT_DAY_BRIGHTNESS,
+    DEFAULT_EVENING_END_TIME,
+    DEFAULT_EVENING_OVERRIDE_CLEAR_TIME,
+    DEFAULT_EVENING_START_TIME,
+    DEFAULT_MANUAL_OVERRIDE_THRESHOLD,
+    DEFAULT_MIDDAY_COLOR_TEMP_KELVIN,
+    DEFAULT_MORNING_END_TIME,
+    DEFAULT_MORNING_OVERRIDE_CLEAR_TIME,
+    DEFAULT_MORNING_START_TIME,
+    DEFAULT_NIGHT_BRIGHTNESS,
+    DEFAULT_NIGHT_COLOR_TEMP_KELVIN,
+    DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -362,7 +363,7 @@ def _process_color_time_input(config: dict[str, Any], input_data: dict[str, Any]
             sun_event = input_data.get(sun_event_key)
 
         sun_offset = input_data.get(sun_offset_key)
-    
+
         # Format the offset string correctly
         if sun_offset:
             # Home Assistant's DurationSelector returns a dict with `days`, `hours`,
@@ -372,19 +373,19 @@ def _process_color_time_input(config: dict[str, Any], input_data: dict[str, Any]
                             sun_offset.get("minutes", 0) * 60 + \
                             sun_offset.get("hours", 0) * 3600 + \
                             sun_offset.get("days", 0) * 86400
-    
+
             if total_seconds == 0:
                 config[time_str_key] = sun_event
             else:
                 is_negative = total_seconds < 0
-    
+
                 abs_seconds = abs(total_seconds)
                 hours = abs_seconds // 3600
                 minutes = (abs_seconds % 3600) // 60
                 seconds = abs_seconds % 60
-    
+
                 offset_str = f"{hours:02}:{minutes:02}:{seconds:02}"
-    
+
                 if is_negative:
                     config[time_str_key] = f"{sun_event} - {offset_str}"
                 else:
@@ -409,7 +410,7 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_color()
 
             schema = get_main_schema(self.hass, self.temp_config)
-            _LOGGER.debug(f"Options init schema created successfully")
+            _LOGGER.debug("Options init schema created successfully")
             return self.async_show_form(
                 step_id="init",
                 data_schema=schema
@@ -518,7 +519,7 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
                 self.temp_config[CONF_COLOR_EVENING_START_FIXED_TIME] = self.temp_config.get(CONF_COLOR_EVENING_START_TIME)
 
             schema = get_color_schema(self.hass, self.temp_config)
-            _LOGGER.debug(f"Options color schema created successfully")
+            _LOGGER.debug("Options color schema created successfully")
             return self.async_show_form(
                 step_id="color",
                 data_schema=schema
@@ -560,7 +561,7 @@ class SmartCircadianLightingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN)
             _LOGGER.debug(f"Config with defaults: {config_with_defaults}")
 
             schema = get_main_schema(self.hass, config_with_defaults)
-            _LOGGER.debug(f"Schema created successfully")
+            _LOGGER.debug("Schema created successfully")
             return self.async_show_form(
                 step_id="user",
                 data_schema=schema,
@@ -613,7 +614,7 @@ class SmartCircadianLightingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN)
                     return self.async_create_entry(title="Smart Circadian Lighting", data=self.temp_config)
 
             schema = get_color_schema(self.hass, self.temp_config)
-            _LOGGER.debug(f"Color schema created successfully")
+            _LOGGER.debug("Color schema created successfully")
             return self.async_show_form(
                 step_id="color",
                 data_schema=schema,
