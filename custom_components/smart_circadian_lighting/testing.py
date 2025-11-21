@@ -5,7 +5,6 @@ import logging
 from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING
 
-from homeassistant.core import State
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.event import async_call_later
@@ -157,11 +156,9 @@ async def async_run_test_cycle(light: CircadianLight, duration: int) -> None:
     light._test_cancelled = False
     light.async_write_ha_state()
 
-    # Save original brightness
-    light_state = light._hass.states.get(light._light_entity_id)
-
     # Ensure the component isn't in a manual override state to start
-    if light._is_overridden:        await light.async_clear_manual_override()
+    if light._is_overridden:
+        await light.async_clear_manual_override()
 
     # Force update to night brightness at start of test
     night_brightness_255 = _convert_percent_to_255(light._config["night_brightness"])
@@ -232,6 +229,7 @@ async def _async_run_single_test_phase(
             )
             continue
 
+        light_state = light._hass.states.get(light._light_entity_id)
         if light_state and light_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
             _LOGGER.debug(
