@@ -81,6 +81,8 @@ git commit -m "feat: add your feature description"
 - **New features require tests** with good coverage
 - **Test both success and failure scenarios**
 - **Integration tests** for complex features
+- **Automated CI/CD** runs all tests on every push and PR
+- **Code coverage** is automatically measured and reported
 
 ### 4. Code Quality Standards
 - **Type hints** for all function parameters and return values

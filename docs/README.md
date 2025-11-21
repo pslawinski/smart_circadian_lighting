@@ -1,6 +1,8 @@
 # Smart Circadian Lighting
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![CI](https://github.com/pslawinski/smart_circadian_lighting/actions/workflows/ci.yml/badge.svg)](https://github.com/pslawinski/smart_circadian_lighting/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/pslawinski/smart_circadian_lighting/branch/main/graph/badge.svg)](https://codecov.io/gh/pslawinski/smart_circadian_lighting)
 
 A sophisticated Home Assistant integration that automatically adjusts your smart lights based on natural circadian rhythms, promoting better sleep and well-being.
 
