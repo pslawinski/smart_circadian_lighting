@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING
 
+from homeassistant.core import State
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.event import async_call_later

@@ -11,7 +11,7 @@ from homeassistant.components.light import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -775,7 +775,7 @@ class CircadianLight(LightEntity):
 
         return service_data
 
-    def _apply_light_state_checks(self, service_data: dict[str, any], light_state: any, transition: int | None, force_update: bool = False) -> None:
+    def _apply_light_state_checks(self, service_data: dict[str, any], light_state: State | None, transition: int | None, force_update: bool = False) -> None:
         """Apply checks based on current light state and modify service data accordingly.
 
         Args:
