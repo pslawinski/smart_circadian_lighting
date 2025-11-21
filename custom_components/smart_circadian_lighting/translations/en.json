@@ -1,0 +1,166 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Brightness Settings",
+        "data": {
+          "morning_start_time": "Time when morning brightness transition begins",
+          "morning_end_time": "Time when morning brightness transition ends (daytime begins)",
+          "evening_start_time": "Time when evening brightness transition begins (daytime ends)",
+          "evening_end_time": "Time when evening brightness transition ends",
+          "night_brightness": "Brightness level during nighttime hours (0-100%)",
+          "day_brightness": "Brightness level during daytime hours (0-100%)",
+          "manual_override_threshold": "Minimum brightness change that triggers manual override detection",
+          "color_temp_manual_override_threshold": "Minimum color temperature change that triggers manual override detection",
+          "lights": "Select the lights to control with circadian lighting",
+          "morning_override_clear_time": "Time when morning manual overrides automatically expire",
+          "evening_override_clear_time": "Time when evening manual overrides automatically expire"
+        },
+        "description": {
+          "morning_start_time": "Time when morning brightness transition begins",
+          "morning_end_time": "Time when morning brightness transition ends (daytime begins)",
+          "evening_start_time": "Time when evening brightness transition begins (daytime ends)",
+          "evening_end_time": "Time when evening brightness transition ends",
+          "night_brightness": "Brightness level during nighttime hours (0-100%)",
+          "day_brightness": "Brightness level during daytime hours (0-100%)",
+          "manual_override_threshold": "Minimum brightness change (percentage) that triggers manual override detection",
+          "color_temp_manual_override_threshold": "Minimum color temperature change (kelvin) that triggers manual override detection",
+          "lights": "Select the lights to control with circadian lighting",
+          "morning_override_clear_time": "Time when morning manual overrides automatically expire",
+          "evening_override_clear_time": "Time when evening manual overrides automatically expire"
+        }
+      },
+      "color": {
+        "title": "Color Temperature Settings",
+        "data": {
+          "color_temp_enabled": "Enable color temperature adjustments",
+          "sunrise_sunset_color_temp_kelvin": "Color temperature at sunrise and sunset",
+          "midday_color_temp_kelvin": "Color temperature during midday",
+          "night_color_temp_kelvin": "Color temperature during nighttime",
+          "color_curve_type": "Interpolation curve for transitions",
+          "color_morning_start_type": "How to determine the time for morning color temperature transition start",
+          "color_morning_start_fixed_time": "Fixed time for morning color temperature transition start",
+          "color_morning_start_sun_event": "Sun event for morning color temperature transition start",
+          "color_morning_start_sun_offset": "Offset from sun event for morning color temperature transition start",
+          "color_morning_end_type": "How to determine the time for morning color temperature transition end",
+          "color_morning_end_fixed_time": "Fixed time for morning color temperature transition end",
+          "color_morning_end_sun_event": "Sun event for morning color temperature transition end",
+          "color_morning_end_sun_offset": "Offset from sun event for morning color temperature transition end",
+          "color_evening_start_type": "How to determine the time for evening color temperature transition start",
+          "color_evening_start_fixed_time": "Fixed time for evening color temperature transition start",
+          "color_evening_start_sun_event": "Sun event for evening color temperature transition start",
+          "color_evening_start_sun_offset": "Offset from sun event for evening color temperature transition start",
+          "color_evening_end_type": "How to determine the time for evening color temperature transition end",
+          "color_evening_end_fixed_time": "Fixed time for evening color temperature transition end",
+          "color_evening_end_sun_event": "Sun event for evening color temperature transition end",
+          "color_evening_end_sun_offset": "Offset from sun event for evening color temperature transition end"
+        },
+        "description": {
+          "color_temp_enabled": "When enabled, lights will gradually change color temperature throughout the day in addition to brightness changes. This creates more natural lighting that mimics daylight.",
+          "sunrise_sunset_color_temp_kelvin": "Color temperature at sunrise and sunset",
+          "midday_color_temp_kelvin": "Color temperature during midday hours",
+          "night_color_temp_kelvin": "Color temperature during nighttime hours",
+          "color_curve_type": "Linear: Straight transition between temperatures. Cosine: Smooth, eased transition that starts slow and ends slow.",
+          "color_morning_start_type": "Sync: Uses the same transition times as brightness settings. Fixed: Use a specific time every day. Sun-based: Calculate from sunrise/sunset with optional offset.",
+          "color_morning_start_fixed_time": "Fixed time for morning color temperature transition start",
+          "color_morning_start_sun_event": "Sun event for morning color temperature transition start",
+          "color_morning_start_sun_offset": "Time to add or subtract from the sun event. Use positive values to delay after sunrise/sunset, negative values to start before. Format: HH:MM:SS",
+          "color_morning_end_type": "Sync: Uses the same transition times as brightness settings. Fixed: Use a specific time every day. Sun-based: Calculate from sunrise/sunset with optional offset.",
+          "color_morning_end_fixed_time": "Fixed time for morning color temperature transition end",
+          "color_morning_end_sun_event": "Sun event for morning color temperature transition end",
+          "color_morning_end_sun_offset": "Time to add or subtract from the sun event. Use positive values to delay after sunrise/sunset, negative values to start before. Format: HH:MM:SS",
+          "color_evening_start_type": "Sync: Uses the same transition times as brightness settings. Fixed: Use a specific time every day. Sun-based: Calculate from sunrise/sunset with optional offset.",
+          "color_evening_start_fixed_time": "Fixed time for evening color temperature transition start",
+          "color_evening_start_sun_event": "Sun event for evening color temperature transition start",
+          "color_evening_start_sun_offset": "Time to add or subtract from the sun event. Use positive values to delay after sunrise/sunset, negative values to start before. Format: HH:MM:SS",
+          "color_evening_end_type": "Sync: Uses the same transition times as brightness settings. Fixed: Use a specific time every day. Sun-based: Calculate from sunrise/sunset with optional offset.",
+          "color_evening_end_fixed_time": "Fixed time for evening color temperature transition end",
+          "color_evening_end_sun_event": "Sun event for evening color temperature transition end",
+          "color_evening_end_sun_offset": "Time to add or subtract from the sun event. Use positive values to delay after sunrise/sunset, negative values to start before. Format: HH:MM:SS"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Brightness Settings",
+        "data": {
+          "morning_start_time": "Time when morning brightness transition begins",
+          "morning_end_time": "Time when morning brightness transition ends (daytime begins)",
+          "evening_start_time": "Time when evening brightness transition begins (daytime ends)",
+          "evening_end_time": "Time when evening brightness transition ends",
+          "night_brightness": "Brightness level during nighttime hours (0-100%)",
+          "day_brightness": "Brightness level during daytime hours (0-100%)",
+          "manual_override_threshold": "Minimum brightness change that triggers manual override detection",
+          "color_temp_manual_override_threshold": "Minimum color temperature change that triggers manual override detection",
+          "lights": "Select the lights to control with circadian lighting",
+          "morning_override_clear_time": "Time when morning manual overrides automatically expire",
+          "evening_override_clear_time": "Time when evening manual overrides automatically expire"
+        },
+        "description": {
+          "morning_start_time": "Time when morning brightness transition begins",
+          "morning_end_time": "Time when morning brightness transition ends (daytime begins)",
+          "evening_start_time": "Time when evening brightness transition begins (daytime ends)",
+          "evening_end_time": "Time when evening brightness transition ends",
+          "night_brightness": "Brightness level during nighttime hours (0-100%)",
+          "day_brightness": "Brightness level during daytime hours (0-100%)",
+          "manual_override_threshold": "Minimum brightness change (percentage) that triggers manual override detection",
+          "color_temp_manual_override_threshold": "Minimum color temperature change (kelvin) that triggers manual override detection",
+          "lights": "Select the lights to control with circadian lighting",
+          "morning_override_clear_time": "Time when morning manual overrides automatically expire",
+          "evening_override_clear_time": "Time when evening manual overrides automatically expire"
+        }
+      },
+      "color": {
+        "title": "Color Temperature Settings",
+        "data": {
+          "color_temp_enabled": "Enable color temperature adjustments",
+          "sunrise_sunset_color_temp_kelvin": "Color temperature at sunrise and sunset",
+          "midday_color_temp_kelvin": "Color temperature during midday",
+          "night_color_temp_kelvin": "Color temperature during nighttime",
+          "color_curve_type": "Interpolation curve for transitions",
+          "color_morning_start_type": "How to determine the time for morning color temperature transition start",
+          "color_morning_start_fixed_time": "Fixed time for morning color temperature transition start",
+          "color_morning_start_sun_event": "Sun event for morning color temperature transition start",
+          "color_morning_start_sun_offset": "Offset from sun event for morning color temperature transition start",
+          "color_morning_end_type": "How to determine the time for morning color temperature transition end",
+          "color_morning_end_fixed_time": "Fixed time for morning color temperature transition end",
+          "color_morning_end_sun_event": "Sun event for morning color temperature transition end",
+          "color_morning_end_sun_offset": "Offset from sun event for morning color temperature transition end",
+          "color_evening_start_type": "How to determine the time for evening color temperature transition start",
+          "color_evening_start_fixed_time": "Fixed time for evening color temperature transition start",
+          "color_evening_start_sun_event": "Sun event for evening color temperature transition start",
+          "color_evening_start_sun_offset": "Offset from sun event for evening color temperature transition start",
+          "color_evening_end_type": "How to determine the time for evening color temperature transition end",
+          "color_evening_end_fixed_time": "Fixed time for evening color temperature transition end",
+          "color_evening_end_sun_event": "Sun event for evening color temperature transition end",
+          "color_evening_end_sun_offset": "Offset from sun event for evening color temperature transition end"
+        },
+        "description": {
+          "color_temp_enabled": "When enabled, lights will gradually change color temperature throughout the day in addition to brightness changes. This creates more natural lighting that mimics daylight.",
+          "sunrise_sunset_color_temp_kelvin": "Color temperature at sunrise and sunset",
+          "midday_color_temp_kelvin": "Color temperature during midday hours",
+          "night_color_temp_kelvin": "Color temperature during nighttime hours",
+          "color_curve_type": "Linear: Straight transition between temperatures. Cosine: Smooth, eased transition that starts slow and ends slow.",
+          "color_morning_start_type": "Sync: Uses the same transition times as brightness settings. Fixed: Use a specific time every day. Sun-based: Calculate from sunrise/sunset with optional offset.",
+          "color_morning_start_fixed_time": "Fixed time for morning color temperature transition start",
+          "color_morning_start_sun_event": "Sun event for morning color temperature transition start",
+          "color_morning_start_sun_offset": "Time to add or subtract from the sun event. Use positive values to delay after sunrise/sunset, negative values to start before. Format: HH:MM:SS",
+          "color_morning_end_type": "Sync: Uses the same transition times as brightness settings. Fixed: Use a specific time every day. Sun-based: Calculate from sunrise/sunset with optional offset.",
+          "color_morning_end_fixed_time": "Fixed time for morning color temperature transition end",
+          "color_morning_end_sun_event": "Sun event for morning color temperature transition end",
+          "color_morning_end_sun_offset": "Time to add or subtract from the sun event. Use positive values to delay after sunrise/sunset, negative values to start before. Format: HH:MM:SS",
+          "color_evening_start_type": "Sync: Uses the same transition times as brightness settings. Fixed: Use a specific time every day. Sun-based: Calculate from sunrise/sunset with optional offset.",
+          "color_evening_start_fixed_time": "Fixed time for evening color temperature transition start",
+          "color_evening_start_sun_event": "Sun event for evening color temperature transition start",
+          "color_evening_start_sun_offset": "Time to add or subtract from the sun event. Use positive values to delay after sunrise/sunset, negative values to start before. Format: HH:MM:SS",
+          "color_evening_end_type": "Sync: Uses the same transition times as brightness settings. Fixed: Use a specific time every day. Sun-based: Calculate from sunrise/sunset with optional offset.",
+          "color_evening_end_fixed_time": "Fixed time for evening color temperature transition end",
+          "color_evening_end_sun_event": "Sun event for evening color temperature transition end",
+          "color_evening_end_sun_offset": "Time to add or subtract from the sun event. Use positive values to delay after sunrise/sunset, negative values to start before. Format: HH:MM:SS"
+        }
+      }
+    }
+  }
+}

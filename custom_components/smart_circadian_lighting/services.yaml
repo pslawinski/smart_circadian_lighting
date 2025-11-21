@@ -1,0 +1,116 @@
+force_circadian_update:
+  name: Force Circadian Update
+  description: >-
+    Forces an immediate circadian update (brightness and color temperature) for all lights controlled by the integration.
+    This is useful for debugging or when you want to manually trigger a refresh.
+
+start_test_transition:
+  name: Start Test Transition
+  description: Starts a test morning or evening transition over a specified duration.
+  fields:
+    entity_id:
+      name: Entity
+      description: The circadian light entity to test.
+      required: true
+      selector:
+        entity:
+          domain: light
+    mode:
+      name: Mode
+      description: "The transition mode to test: 'morning' or 'evening'."
+      required: true
+      selector:
+        select:
+          options:
+            - "morning"
+            - "evening"
+    duration:
+      name: Duration
+      description: The duration of the transition in seconds.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 86400
+          unit_of_measurement: "seconds"
+    hold_duration:
+      name: Hold Duration
+      description: The duration in seconds to hold the light at the final brightness after the transition.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 86400
+          unit_of_measurement: "seconds"
+    include_color_temp:
+      name: Include Color Temperature
+      description: "If true, the test will also transition color temperature."
+      required: false
+      selector:
+        boolean:
+
+cancel_test_transition:
+  name: Cancel Test Transition
+  description: Cancels an ongoing test transition and restores the light to its normal circadian state.
+  fields:
+    entity_id:
+      name: Entity
+      description: The circadian light entity for which to cancel the test.
+      required: true
+      selector:
+        entity:
+          domain: light
+
+set_temporary_transition:
+  name: Set Temporary Transition
+  description: Overrides the settings for the next transition, or modifies an ongoing one.
+  fields:
+    entity_id:
+      name: Entity
+      description: The circadian light entity to modify.
+      required: true
+      selector:
+        entity:
+          domain: light
+    mode:
+      name: Mode
+      description: "The transition mode to override: 'morning' or 'evening'."
+      required: true
+      selector:
+        select:
+          options:
+            - "morning"
+            - "evening"
+    start_time:
+      name: Start Time
+      description: "The overridden start time for the transition (e.g., '07:00:00')."
+      required: false
+      selector:
+        time:
+    end_time:
+      name: End Time
+      description: "The overridden end time for the transition (e.g., '08:00:00')."
+      required: false
+      selector:
+        time:
+    duration:
+      name: Duration
+      description: "The overridden duration of the transition in seconds. If provided, `end_time` is ignored."
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 86400
+          unit_of_measurement: "seconds"
+
+end_current_transition:
+  name: End Current Transition
+  description: Immediately fast-forwards an active transition to its final brightness.
+  fields:
+    entity_id:
+      name: Entity
+      description: The circadian light entity for which to end the transition.
+      required: true
+      selector:
+        entity:
+          domain: light

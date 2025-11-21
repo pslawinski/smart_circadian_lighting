@@ -1,0 +1,13 @@
+{
+  "domain": "smart_circadian_lighting",
+  "name": "Smart Circadian Lighting",
+  "config_flow": true,
+  "codeowners": ["@pslawinski"],
+  "version": "0.1.0",
+  "iot_class": "local_push",
+  "icon": "mdi:home",
+  "dependencies": [],
+  "after_dependencies": ["light", "kasa_smart_dim"],
+  "requirements": [],
+  "has_translations": true
+}

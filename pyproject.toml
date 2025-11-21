@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smart_circadian_lighting"
+version = "0.1.0"
+description = "Home Assistant integration for circadian lighting control"
+readme = "docs/README.md"
+license = {text = "CC-BY-NC-4.0"}
+authors = [
+    {name = "pslawinski", email = "pslawinski@example.com"},
+]
+maintainers = [
+    {name = "pslawinski", email = "pslawinski@example.com"},
+]
+keywords = ["home-assistant", "integration", "lighting", "circadian", "rhythm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: Other/Proprietary License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Home Automation",
+    "Topic :: Scientific/Engineering :: Human Machine Interfaces",
+]
+requires-python = ">=3.11.0"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/pslawinski/smart_circadian_lighting"
+Repository = "https://github.com/pslawinski/smart_circadian_lighting"
+Issues = "https://github.com/pslawinski/smart_circadian_lighting/issues"
+Changelog = "https://github.com/pslawinski/smart_circadian_lighting/blob/main/docs/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["custom_components.smart_circadian_lighting"]
+
+[tool.setuptools.package-data]
+"custom_components.smart_circadian_lighting" = ["*.yaml", "*.json"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.coverage.run]
+source = ["custom_components/smart_circadian_lighting"]
+omit = ["*/tests/*", "*/test_*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long, handled by black
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*" = ["B011"]
