@@ -1,96 +1,75 @@
-"""Tests for button.py"""
-
-import sys
-from unittest.mock import AsyncMock, MagicMock
-
-# Add the parent directory to sys.path so we can import the actual module
-sys.path.insert(0, '..')
-
-# Mock HA modules before importing
-mock_modules = [
-    'homeassistant',
-    'homeassistant.config_entries',
-    'homeassistant.core',
-    'homeassistant.helpers.entity',
-    'homeassistant.helpers.entity_platform',
-    'homeassistant.helpers.dispatcher',
-    'homeassistant.components.button',
-    'homeassistant.components.light',
-    'homeassistant.config_entries',
-    'homeassistant.const',
-    'homeassistant.data_entry_flow',
-    'homeassistant.exceptions',
-    'homeassistant.util',
-    'homeassistant.util.dt',
-    'smart_circadian_lighting',
-    'smart_circadian_lighting.const',
-    'smart_circadian_lighting.light',
-]
-
-for module in mock_modules:
-    sys.modules[module] = MagicMock()
-
+"""Tests for button.py - integration tests using pytest-homeassistant-custom-component."""
 
 import pytest
 
-# Test the button logic without instantiating the real button class
+from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 
+from homeassistant.const import STATE_ON
 
-class TestGlobalForceUpdateButton:
-    """Test the Global Force Update All button functionality."""
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    @pytest.fixture
-    def mock_circadian_lights(self):
-        """Mock list of circadian lights."""
-        light1 = MagicMock()
-        light1.async_force_update_circadian = AsyncMock()
-        light1.name = "Light 1"
+from custom_components.smart_circadian_lighting.const import DOMAIN
 
-        light2 = MagicMock()
-        light2.async_force_update_circadian = AsyncMock()
-        light2.name = "Light 2"
+@pytest.mark.asyncio
+async def test_global_force_update_button_press(hass):
+    """Test global force update button press calls async_force_update_circadian on all lights."""
 
-        return [light1, light2]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="test_entry",
+        data={
+            "lights": ["light.test_light1", "light.test_light2"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "20:00:00",
+            "evening_end_time": "21:00:00",
+        },
+    )
+    entry.add_to_hass(hass)
 
-    @pytest.mark.asyncio
-    async def test_button_press_calls_force_update_on_all_lights(self, mock_circadian_lights):
-        """Test that the button press logic calls async_force_update_circadian on all lights."""
-        # Simulate the button's async_press method logic
-        for light in mock_circadian_lights:
-            await light.async_force_update_circadian()
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
-        # Verify that async_force_update_circadian was called on each light
-        for light in mock_circadian_lights:
-            light.async_force_update_circadian.assert_called_once()
+    # Patch the light async_force_update_circadian
+    with patch("custom_components.smart_circadian_lighting.light.CircadianLight.async_force_update_circadian") as mock_force_update:
+        # Press the global force update button
+        button_entity_id = f"button.{entry.entry_id}_force_update_all"
+        await hass.services.async_call(
+            BUTTON_DOMAIN,
+            "press",
+            {"entity_id": button_entity_id},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
 
-    @pytest.mark.asyncio
-    async def test_button_press_with_empty_light_list(self):
-        """Test button press logic with no lights (should not raise error)."""
-        lights = []
-        # Simulate the button's async_press method logic
-        for light in lights:
-            await light.async_force_update_circadian()
+    # Verify called on lights
+    assert mock_force_update.call_count >= 2
 
-        # Should not raise any error - no calls made
+@pytest.mark.asyncio
+async def test_global_clear_override_button_press(hass):
+    """Test global clear override button press."""
+    # Similar setup
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="test_entry",
+        data={
+            "lights": ["light.test_light1"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+        },
+    )
+    entry.add_to_hass(hass)
 
-    @pytest.mark.asyncio
-    async def test_button_press_with_none_lights(self):
-        """Test button press logic handles None lights gracefully."""
-        lights_with_none = [MagicMock(), None, MagicMock()]
-        for light in lights_with_none:
-            if light is not None:
-                light.async_force_update_circadian = AsyncMock()
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
-        # Simulate the button's async_press method logic (only call on non-None lights)
-        for light in lights_with_none:
-            if light is not None:
-                await light.async_force_update_circadian()
-
-        # Check that only non-None lights were called
-        call_count = 0
-        for light in lights_with_none:
-            if light is not None:
-                light.async_force_update_circadian.assert_called_once()
-                call_count += 1
-
-        assert call_count == 2  # Two valid lights
+    button_entity_id = f"button.{entry.entry_id}_clear_override_all"
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        "press",
+        {"entity_id": button_entity_id},
+        blocking=True,
+    )
+    await hass.async_block_till_done()

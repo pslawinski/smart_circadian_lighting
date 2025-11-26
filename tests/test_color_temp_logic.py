@@ -776,7 +776,7 @@ class TestErrorHandlingAndEdgeCases:
     def test_sun_event_failure_fallback(self, mock_hass):
         """Test that system falls back to fixed times when sun events can't be retrieved."""
         # Mock sun event failure
-        with patch('smart_circadian_lighting.color_temp_logic.get_astral_event_next', return_value=None):
+        with patch('custom_components.smart_circadian_lighting.color_temp_logic.get_astral_event_next', return_value=None):
             config = {
                 "color_temp_enabled": True,
                 "sunrise_sunset_color_temp_kelvin": 2700,

@@ -1,32 +1,77 @@
-"""Pytest configuration for mocking Home Assistant modules."""
-
 import sys
-from unittest.mock import MagicMock
+sys.path.insert(0, '../custom_components/smart_circadian_lighting')
+import sys
+sys.path.insert(0, '..')
+"""Pytest fixtures for Smart Circadian Lighting integration tests."""
 
-# Mock all Home Assistant modules before any test collection
-mock_modules = [
-    'homeassistant',
-    'homeassistant.config_entries',
-    'homeassistant.core',
-    'homeassistant.helpers.sun',
-    'homeassistant.helpers.entity',
-    'homeassistant.helpers.entity_platform',
-    'homeassistant.helpers.event',
-    'homeassistant.helpers.storage',
-    'homeassistant.helpers.dispatcher',
-    'homeassistant.helpers',
-    'homeassistant.helpers.entity_registry',
-    'homeassistant.helpers.selector',
-    'homeassistant.helpers.service',
-    'homeassistant.components.light',
-    'homeassistant.components.sensor',
-    'homeassistant.const',
-    'homeassistant.data_entry_flow',
-    'homeassistant.exceptions',
-    'homeassistant.util',
-    'homeassistant.util.dt',
-# Removed smart_circadian_lighting modules from mocking to allow real imports
-]
+import pytest
 
-for module in mock_modules:
-    sys.modules[module] = MagicMock()
+from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
+from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
+
+from homeassistant.const import STATE_ON
+
+from homeassistant.core import HomeAssistant
+
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+DOMAIN = "smart_circadian_lighting"
+
+@pytest.fixture
+async def hass_fixture(hass: HomeAssistant):
+    """HA fixture."""
+    yield hass
+
+@pytest.fixture
+async def single_light_entry(hass: HomeAssistant):
+    """Config entry for single light."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="test_single_light",
+        data={
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "20:00:00",
+            "evening_end_time": "21:00:00",
+            "color_temp_enabled": False,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    yield entry
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+@pytest.fixture
+async def multiple_lights_entry(hass: HomeAssistant):
+    """Config entry for multiple lights."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="test_multiple_lights",
+        data={
+            "lights": ["light.test_light1", "light.test_light2"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "20:00:00",
+            "evening_end_time": "21:00:00",
+            "color_temp_enabled": False,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    yield entry
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
