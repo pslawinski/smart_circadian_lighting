@@ -20,7 +20,7 @@ async def test_evening_transition_start_stale_state_sends_command():
     hass = MagicMock()
     hass.data = {}
     hass.states = MagicMock()
-    hass.states.async_set = AsyncMock()
+    hass.states.async_set = MagicMock()
     hass.services = MagicMock()
     hass.services.async_call = AsyncMock()
 
@@ -96,7 +96,7 @@ async def test_morning_alarm_dim_near_end_catchup():
     hass = MagicMock()
     hass.data = {}
     hass.states = MagicMock()
-    hass.states.async_set = AsyncMock()
+    hass.states.async_set = MagicMock()
     hass.services = MagicMock()
     hass.services.async_call = AsyncMock()
 
