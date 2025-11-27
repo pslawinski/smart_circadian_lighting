@@ -3,52 +3,8 @@
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# Mock HA modules before importing
-mock_modules = [
-    'homeassistant',
-    'homeassistant.config_entries',
-    'homeassistant.core',
-    'homeassistant.helpers.sun',
-    'homeassistant.helpers.entity',
-    'homeassistant.helpers.entity_platform',
-    'homeassistant.helpers.event',
-    'homeassistant.helpers.storage',
-    'homeassistant.helpers.dispatcher',
-    'homeassistant.helpers',
-    'homeassistant.helpers.entity_registry',
-    'homeassistant.helpers.selector',
-    'homeassistant.helpers.service',
-    'homeassistant.components.light',
-    'homeassistant.components.sensor',
-    'homeassistant.config_entries',
-    'homeassistant.const',
-    'homeassistant.data_entry_flow',
-    'homeassistant.exceptions',
-    'homeassistant.util',
-    'homeassistant.util.dt',
-]
-
-for module in mock_modules:
-    sys.modules[module] = MagicMock()
-
-# Mock specific functions
-sys.modules['homeassistant.util.dt'].now = MagicMock()
-sys.modules['homeassistant.util.dt'].utcnow = MagicMock()
-# Make parse_datetime actually parse the datetime string
-def mock_parse_datetime(datetime_str):
-    from datetime import datetime
-    return datetime.fromisoformat(datetime_str)
-sys.modules['homeassistant.util.dt'].parse_datetime = mock_parse_datetime
-
-# Also mock the dt_util import directly
-import sys
-
-dt_util_mock = MagicMock()
-dt_util_mock.parse_datetime = mock_parse_datetime
-dt_util_mock.now = MagicMock()
-dt_util_mock.utcnow = MagicMock()
-sys.modules['homeassistant.util'] = MagicMock()
-sys.modules['homeassistant.util'].dt = dt_util_mock
+# Import framework fixtures
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 
 from datetime import datetime, time, timedelta
@@ -605,13 +561,7 @@ class MockLightState:
         self.state = state
 
 
-@pytest.fixture
-def mock_hass():
-    """Mock Home Assistant instance."""
-    hass = MagicMock()
-    hass.states.get.return_value = None
-    hass.bus.async_fire = AsyncMock()
-    return hass
+# mock_hass fixture removed - using framework hass fixture instead
 
 
 @pytest.fixture
@@ -651,18 +601,25 @@ def mock_store():
 
 @pytest.fixture
 def mock_entry():
-    """Mock config entry."""
-    entry = MagicMock()
-    entry.entry_id = "test_entry"
-    entry.data = {}
+    """Mock config entry using framework."""
+    entry = MockConfigEntry(
+        domain="smart_circadian_lighting",
+        unique_id="test_entry",
+        data={}
+    )
     return entry
 
 
 @pytest_asyncio.fixture
-async def real_circadian_light(mock_hass, config, mock_store, mock_entry):
+async def real_circadian_light(config, mock_store, mock_entry):
     """Create a mock CircadianLight instance that behaves like the real one for testing."""
     # Create a mock that behaves like CircadianLight
     light = MagicMock()
+
+    # Create a mock hass instance for unit testing
+    mock_hass = MagicMock()
+    mock_hass.states.get.return_value = None
+    mock_hass.bus.async_fire = AsyncMock()
 
     # Set up the basic attributes
     light._hass = mock_hass
