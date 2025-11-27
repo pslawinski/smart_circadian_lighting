@@ -1,0 +1,15 @@
+{
+  "name": "Home Assistant Development",
+  "image": "python:3.11-slim",
+  "postCreateCommand": "pip install homeassistant && pip install -e .",
+  "extensions": [
+    "ms-python.python",
+    "github.copilot"
+  ],
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspaces,type=bind"
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "/usr/local/bin/python3"
+  }
+}
