@@ -13,30 +13,17 @@ from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN, ATTR_BRIGHTNE
 from homeassistant.const import STATE_ON
 
 @pytest.mark.asyncio
-async def test_evening_transition_start_stale_state_sends_command():
+async def test_evening_transition_start_stale_state_sends_command(mock_config_entry):
     """Repro: Evening pre-transition dim not detected, sends high target."""
     from unittest.mock import MagicMock, AsyncMock
 
-    hass = MagicMock()
-    hass.data = {}
+    hass, entry = mock_config_entry
+    # Keep manual mocks for controlled test behavior
     hass.states = MagicMock()
     hass.states.async_set = MagicMock()
     hass.services = MagicMock()
     hass.services.async_call = AsyncMock()
 
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id="mock_repro",
-        data={
-            "lights": ["light.physical"],
-            "day_brightness": 100,
-            "night_brightness": 10,
-            "morning_start_time": "06:00:00",
-            "morning_end_time": "07:00:00",
-            "evening_start_time": "20:00:00",
-            "evening_end_time": "21:00:00",
-        },
-    )
     entry.async_update_entry = AsyncMock()
 
     # Mock the component data
@@ -89,30 +76,17 @@ async def test_evening_transition_start_stale_state_sends_command():
 
 
 @pytest.mark.asyncio
-async def test_morning_alarm_dim_near_end_catchup():
+async def test_morning_alarm_dim_near_end_catchup(mock_config_entry):
     """Repro: Morning near end dim sets override but instant catch-up clears."""
     from unittest.mock import MagicMock, AsyncMock
 
-    hass = MagicMock()
-    hass.data = {}
+    hass, entry = mock_config_entry
+    # Keep manual mocks for controlled test behavior
     hass.states = MagicMock()
     hass.states.async_set = MagicMock()
     hass.services = MagicMock()
     hass.services.async_call = AsyncMock()
 
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id="mock_repro",
-        data={
-            "lights": ["light.physical"],
-            "day_brightness": 100,
-            "night_brightness": 10,
-            "morning_start_time": "05:00:00",
-            "morning_end_time": "06:00:00",
-            "evening_start_time": "20:00:00",
-            "evening_end_time": "21:00:00",
-        },
-    )
     entry.async_update_entry = AsyncMock()
 
     # Mock the component data

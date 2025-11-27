@@ -68,17 +68,25 @@ async def multiple_lights_entry(hass: HomeAssistant):
     return entry
 
 @pytest.fixture
-async def mock_config_entry():
+def mock_config_entry():
     """Mock config entry for repro tests."""
     import tempfile
     from homeassistant.core import HomeAssistant
-    config_dir = tempfile.mkdtemp()
-    hass = HomeAssistant(config_dir)
-    await hass.async_start()
-    # Initialize config_entries
-    hass.config_entries = type('ConfigEntries', (), {'_entries': {}})()
-    hass.config_entries.async_setup = AsyncMock()
-    hass.config_entries.async_unload = AsyncMock()
+    from unittest.mock import MagicMock, AsyncMock
+
+    # Create a mock hass instance
+    hass = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.services = MagicMock()
+    hass.services.async_call = AsyncMock()
+    hass.async_block_till_done = AsyncMock()
+    hass.states = MagicMock()
+    hass.states.async_set = MagicMock()
+    hass.states.get = MagicMock()
+    hass.bus = MagicMock()
+    hass.bus.async_fire = AsyncMock()
+    hass.data = {}
+
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id="mock_repro",
@@ -92,8 +100,6 @@ async def mock_config_entry():
             "evening_end_time": "21:00:00",
         },
     )
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    hass.states.async_set("light.physical", STATE_ON, {"brightness": 255})
+    entry.async_update_entry = AsyncMock()
+
     return hass, entry
