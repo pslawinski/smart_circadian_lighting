@@ -37,6 +37,7 @@ async def test_evening_transition_start_stale_state_sends_command():
             "evening_end_time": "21:00:00",
         },
     )
+    entry.async_update_entry = AsyncMock()
 
     # Mock the component data
     light = MagicMock()
@@ -45,7 +46,7 @@ async def test_evening_transition_start_stale_state_sends_command():
     light._day_brightness_255 = 255
     light._async_calculate_and_apply_brightness = AsyncMock()
     hass.data = {DOMAIN: {entry.entry_id: {"circadian_lights": [light]}}}
-    entry.data = {
+    await entry.async_update_entry(hass, {
         "lights": ["light.physical"],
         "day_brightness": 100,
         "night_brightness": 10,
@@ -53,10 +54,9 @@ async def test_evening_transition_start_stale_state_sends_command():
         "morning_end_time": "07:00:00",
         "evening_start_time": "20:00:00",
         "evening_end_time": "21:00:00",
-    }
+    })
 
     light = hass.data[DOMAIN][entry.entry_id]["circadian_lights"][0]
-    light.async_update_light = AsyncMock()
 
     # Mock physical light
     hass.states.async_set("light.physical", STATE_ON, {"brightness": 255})
@@ -113,6 +113,7 @@ async def test_morning_alarm_dim_near_end_catchup():
             "evening_end_time": "21:00:00",
         },
     )
+    entry.async_update_entry = AsyncMock()
 
     # Mock the component data
     light = MagicMock()
@@ -122,7 +123,7 @@ async def test_morning_alarm_dim_near_end_catchup():
     light._async_entity_state_changed = AsyncMock()
     light.extra_state_attributes = {"is_overridden": False}
     hass.data = {DOMAIN: {entry.entry_id: {"circadian_lights": [light]}}}
-    entry.data = {
+    await entry.async_update_entry(hass, {
         "lights": ["light.physical"],
         "day_brightness": 100,
         "night_brightness": 10,
@@ -130,7 +131,7 @@ async def test_morning_alarm_dim_near_end_catchup():
         "morning_end_time": "06:00:00",
         "evening_start_time": "20:00:00",
         "evening_end_time": "21:00:00",
-    }
+    })
 
     light = hass.data[DOMAIN][entry.entry_id]["circadian_lights"][0]
 
