@@ -332,7 +332,7 @@ class CircadianLight(LightEntity):
     @property
     def circadian_mode(self) -> str:
         """Return the current circadian mode."""
-        return circadian_logic.get_circadian_mode(datetime.now(), self._temp_transition_override, self._config)
+        return circadian_logic.get_circadian_mode(dt_util.now(), self._temp_transition_override, self._config)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -589,16 +589,34 @@ class CircadianLight(LightEntity):
                 return
             current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
 
-            is_morning = mode == "morning_transition"
-            # If the calculated brightness has caught up to the manual override, clear the override
-            if (is_morning and target_brightness_255 >= current_brightness) or \
-               (not is_morning and target_brightness_255 <= current_brightness):
+            # Only clear override for "ahead" adjustments that have been caught up to
+            # "Behind" adjustments (dimmer than circadian) should persist until manually changed
+            should_clear_override = False
+
+            # Calculate what the circadian target was when override was detected
+            original_circadian_target = circadian_logic.calculate_brightness(
+                0, self._temp_transition_override, self._config,
+                self._day_brightness_255, self._night_brightness_255, self._light_entity_id
+            )
+
+            if mode == "morning_transition":
+                # In morning transition, clear override only if manual brightness was higher than circadian
+                # AND circadian has now caught up to it
+                if current_brightness > original_circadian_target and target_brightness_255 >= current_brightness:
+                    should_clear_override = True
+            elif mode == "evening_transition":
+                # In evening transition, clear override only if manual brightness was lower than circadian
+                # AND circadian has now caught up to it
+                if current_brightness < original_circadian_target and target_brightness_255 <= current_brightness:
+                    should_clear_override = True
+
+            if should_clear_override:
                 _LOGGER.info(f"[{self._light_entity_id}] Circadian brightness has caught up to manual override. Clearing override.")
                 self._is_overridden = False
                 await state_management.async_save_override_state(self)
                 await self._set_exact_circadian_targets()
             else:
-                _LOGGER.debug(f"[{self._light_entity_id}] Skipping: manually overridden and circadian brightness has not caught up. Target: {target_brightness_255}, Current: {current_brightness}")
+                _LOGGER.debug(f"[{self._light_entity_id}] Skipping: manually overridden. Target: {target_brightness_255}, Current: {current_brightness}")
                 return
 
         if transition_override is not None:
