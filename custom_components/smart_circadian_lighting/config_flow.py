@@ -71,14 +71,14 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _get_kasa_dimmer_entities(hass: HomeAssistant) -> list[str]:
-    """Return a list of Kasa dimmer entity IDs from the kasa_smart_dim component."""
+def _get_supported_dimmer_entities(hass: HomeAssistant) -> list[str]:
+    """Return a list of supported dimmer entity IDs from Kasa and Z-Wave JS components."""
     ent_reg = er.async_get(hass)
     entity_ids = []
     for entity in ent_reg.entities.values():
-        if entity.platform == "kasa_smart_dim" and entity.domain == "light":
+        if entity.domain == "light" and (entity.platform == "kasa_smart_dim" or entity.platform == "zwave_js"):
             entity_ids.append(entity.entity_id)
-    _LOGGER.debug(f"Found Kasa smart dim entities: {entity_ids}")
+    _LOGGER.debug(f"Found supported dimmer entities: {entity_ids}")
     return entity_ids
 
 
@@ -547,7 +547,7 @@ class SmartCircadianLightingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN)
                 return await self.async_step_color()
 
             # Pre-select all found dimmers by default on first run
-            config_with_defaults = {CONF_LIGHTS: _get_kasa_dimmer_entities(self.hass)}
+            config_with_defaults = {CONF_LIGHTS: _get_supported_dimmer_entities(self.hass)}
             _LOGGER.debug(f"Config with defaults: {config_with_defaults}")
 
             schema = get_main_schema(self.hass, config_with_defaults)

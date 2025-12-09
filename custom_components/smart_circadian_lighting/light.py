@@ -805,10 +805,12 @@ class CircadianLight(LightEntity):
         entity_registry = er.async_get(self._hass)
         entity_entry = entity_registry.async_get(self._light_entity_id)
         is_kasa_dimmer = entity_entry and entity_entry.platform == "kasa_smart_dim"
+        is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
 
-        # Do not send updates to non-Kasa lights that are off
-        if not is_kasa_dimmer and light_state.state != STATE_ON:
-            _LOGGER.debug(f"[{self._light_entity_id}] Skipping update because non-Kasa light is off.")
+        # Do not send updates to lights that are off and don't support off-state control
+        # Allow Kasa dimmers and Z-Wave lights when off (they can preload brightness)
+        if not (is_kasa_dimmer or is_zwave_light) and light_state.state != STATE_ON:
+            _LOGGER.debug(f"[{self._light_entity_id}] Skipping update because non-supported light is off.")
             service_data.clear()  # Signal to skip
             return
 
@@ -854,6 +856,51 @@ class CircadianLight(LightEntity):
 
         target_brightness = service_data.get(ATTR_BRIGHTNESS)
         target_color_temp = service_data.get(ATTR_COLOR_TEMP_KELVIN)
+
+        # Check if this is a Z-Wave light that needs special handling
+        entity_registry = er.async_get(self._hass)
+        entity_entry = entity_registry.async_get(self._light_entity_id)
+        is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
+
+        light_state = self._hass.states.get(self._light_entity_id)
+        is_light_on = light_state and light_state.state == STATE_ON
+
+        # Handle Z-Wave lights specially
+        if is_zwave_light and target_brightness is not None:
+            # For Z-Wave lights, set parameter 18 (custom brightness) to preload for next turn-on
+            # Convert 0-255 brightness to 0-99 scale for Z-Wave parameter
+            zwave_brightness = int(target_brightness * 99 / 255)
+            zwave_brightness = max(0, min(99, zwave_brightness))  # Clamp to 0-99
+
+            try:
+                await asyncio.wait_for(
+                    self._hass.services.async_call(
+                        "zwave_js",
+                        "set_config_parameter",
+                        {
+                            "device_id": entity_entry.device_id,
+                            "parameter": 18,
+                            "value": zwave_brightness,
+                        },
+                    ),
+                    timeout=LIGHT_UPDATE_TIMEOUT,
+                )
+                _LOGGER.debug(f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {target_brightness})")
+            except TimeoutError:
+                _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
+            except HomeAssistantError as e:
+                _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
+
+            # For Z-Wave lights when off, we've set the parameter - no need to call light.turn_on
+            if not is_light_on:
+                _LOGGER.debug(f"[{self._light_entity_id}] Z-Wave light is off, parameter set - skipping light.turn_on")
+                if brightness is None:
+                    self._last_confirmed_brightness = self._brightness
+                self._last_set_brightness = target_brightness
+                if target_color_temp is not None:
+                    self._last_set_color_temp = target_color_temp
+                self._first_update_done = True
+                return
 
         sun_state = self._hass.states.get("sun.sun")
         sun_elevation = sun_state.attributes.get("elevation") if sun_state else None
