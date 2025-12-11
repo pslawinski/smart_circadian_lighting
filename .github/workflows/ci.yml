@@ -14,7 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: pip install homeassistant
+        run: |
+          pip install homeassistant
+          pip install -r requirements-dev.txt
       - name: Install project
         run: pip install -e .
       - name: Run tests

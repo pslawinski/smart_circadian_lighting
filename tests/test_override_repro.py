@@ -5,45 +5,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 import logging
 
-from homeassistant.core import State, HomeAssistant
-from unittest.mock import patch, MagicMock, AsyncMock
+from homeassistant.core import HomeAssistant
+from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN, ATTR_BRIGHTNESS
+from homeassistant.const import STATE_ON
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
-
-class MockState:
-    """A State-like object that isn't affected by global mocking."""
-    def __init__(self, entity_id: str, state: str, attributes: dict | None = None):
-        if attributes is None:
-            attributes = {}
-        self.entity_id = entity_id
-        self.state = state
-        self.attributes = MockAttributes(attributes)
-
-class MockAttributes:
-    """Attributes dict that behaves correctly."""
-    def __init__(self, attributes: dict):
-        self._attributes = attributes.copy()
-
-    def get(self, key, default=None):
-        return self._attributes.get(key, default)
-
-def create_test_state(entity_id: str, state: str, attributes: dict | None = None) -> MockState:
-    """Create a State-like object that behaves correctly for testing."""
-    return MockState(entity_id, state, attributes)
-
 DOMAIN = "smart_circadian_lighting"
-from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN, ATTR_BRIGHTNESS
-from homeassistant.const import STATE_ON
 
 @pytest.mark.asyncio
-async def test_evening_transition_start_stale_state_sends_command(mock_config_entry):
+async def test_evening_transition_start_stale_state_sends_command(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
     """Repro: Evening pre-transition dim not detected, sends high target."""
     from unittest.mock import patch, MagicMock
 
-    hass, entry = mock_config_entry
+    hass = mock_hass_with_services
+    entry = mock_config_entry_factory()
 
     # Create a real light instance with proper behavior
     from custom_components.smart_circadian_lighting.light import CircadianLight
@@ -71,13 +49,10 @@ async def test_evening_transition_start_stale_state_sends_command(mock_config_en
     light.hass = hass  # Ensure hass is set on the entity
 
     # Set up component data structure
-    if not hasattr(hass, 'data'):
-        hass.data = {}
     hass.data[DOMAIN] = {entry.entry_id: {"circadian_lights": [light]}}
     # Set up entity registry in hass.data for HA framework compatibility
     from homeassistant.helpers.entity_registry import DATA_REGISTRY
-    if DATA_REGISTRY not in hass.data:
-        hass.data[DATA_REGISTRY] = MagicMock()
+    hass.data[DATA_REGISTRY] = MagicMock()
 
     # Simulate user voice command: dim to 25% just before transition (19:28)
     with patch('homeassistant.util.dt.now') as mock_now, \
@@ -86,14 +61,12 @@ async def test_evening_transition_start_stale_state_sends_command(mock_config_en
          patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_async_call_later, \
          patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
          patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
-         patch('homeassistant.core.State') as mock_state_class, \
          patch.object(light._hass.states, 'get') as mock_states_get, \
          patch.object(light, 'async_write_ha_state') as mock_write_state:
-        mock_state_class.side_effect = create_test_state
 
-        # Create State objects using our custom factory to avoid global mocking
-        initial_state = create_test_state("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 255})
-        dimmed_state = create_test_state("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 64})
+        # Create State objects using our fixture factory to avoid global mocking
+        initial_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 255})
+        dimmed_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 64})
 
         # Set up initial state: light at 100% brightness
         mock_states_get.return_value = initial_state
@@ -135,11 +108,12 @@ async def test_evening_transition_start_stale_state_sends_command(mock_config_en
 
 
 @pytest.mark.asyncio
-async def test_morning_alarm_dim_near_end_catchup(mock_config_entry):
+async def test_morning_alarm_dim_near_end_catchup(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
     """Repro: Morning near end dim sets override but instant catch-up clears."""
     from unittest.mock import patch, MagicMock
 
-    hass, entry = mock_config_entry
+    hass = mock_hass_with_services
+    entry = mock_config_entry_factory()
 
     # Create a real light instance with proper behavior
     from custom_components.smart_circadian_lighting.light import CircadianLight
@@ -173,8 +147,6 @@ async def test_morning_alarm_dim_near_end_catchup(mock_config_entry):
     light._override_timestamp = None
 
     # Set up component data structure
-    if not hasattr(hass, 'data'):
-        hass.data = {}
     hass.data[DOMAIN] = {entry.entry_id: {"circadian_lights": [light]}}
 
     # Mock time to be near end of morning transition (5:55)
@@ -184,14 +156,12 @@ async def test_morning_alarm_dim_near_end_catchup(mock_config_entry):
          patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_async_call_later, \
          patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
          patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
-         patch('homeassistant.core.State') as mock_state_class, \
          patch.object(light._hass.states, 'get') as mock_states_get, \
          patch.object(light, 'async_write_ha_state') as mock_write_state:
-        mock_state_class.side_effect = create_test_state
 
-        # Create State objects using our custom factory to avoid global mocking
-        initial_state = create_test_state("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 200})
-        dimmed_state = create_test_state("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 77})
+        # Create State objects using our fixture factory to avoid global mocking
+        initial_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 200})
+        dimmed_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 77})
 
         # Set up initial state: light at high brightness near end of morning transition
         mock_states_get.return_value = initial_state
@@ -212,9 +182,6 @@ async def test_morning_alarm_dim_near_end_catchup(mock_config_entry):
         # The component should detect that brightness 77 > night_brightness 26 during morning transition
         override_detected = light._is_overridden
 
-        # Note: This test has a minor isolation issue when run with all tests
-        # It passes when run individually, indicating correct component behavior
-
         assert override_detected, f"Override should be detected after automation dimming during transition. Mode: {light.circadian_mode}"
 
         # Advance time to next minute (simulating scheduled update)
@@ -233,4 +200,74 @@ async def test_morning_alarm_dim_near_end_catchup(mock_config_entry):
 
         # Override should prevent circadian from changing the brightness
         assert final_brightness == 77, f"Override should prevent brightness change, but got {final_brightness} instead of 77"
+
+
+@pytest.mark.asyncio
+async def test_transition_start_small_deviation_no_override(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
+    """Test that small brightness deviations within threshold do not trigger override at transition start."""
+    from unittest.mock import patch, MagicMock
+
+    hass = mock_hass_with_services
+    entry = mock_config_entry_factory()
+
+    # Create a real light instance
+    from custom_components.smart_circadian_lighting.light import CircadianLight
+
+    # Mock the store
+    mock_store = MagicMock()
+    mock_store.async_load = AsyncMock(return_value=None)
+    mock_store.async_save = AsyncMock()
+
+    config = {
+        "lights": ["light.test_light"],
+        "day_brightness": 100,
+        "night_brightness": 10,  # 25.5 in 255 scale
+        "manual_override_threshold": 5,  # 12.75 in 255 scale
+        "morning_start_time": "05:15:00",
+        "morning_end_time": "06:00:00",
+        "evening_start_time": "19:30:00",
+        "evening_end_time": "20:30:00",
+        "color_temp_enabled": False,
+        "morning_override_clear_time": "08:00:00",
+        "evening_override_clear_time": "02:00:00",
+    }
+
+    light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+    light.hass = hass
+    light.entity_id = f"{DOMAIN}.test_light"
+
+    # Ensure clean state
+    light._is_overridden = False
+    light._override_timestamp = None
+
+    hass.data[DOMAIN] = {entry.entry_id: {"circadian_lights": [light]}}
+
+    with patch('homeassistant.util.dt.now') as mock_now, \
+         patch('custom_components.smart_circadian_lighting.state_management.dt_util.now') as mock_dt_util, \
+         patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_light_dt_util, \
+         patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_async_call_later, \
+         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
+         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
+         patch.object(light._hass.states, 'get') as mock_states_get, \
+         patch.object(light, 'async_write_ha_state') as mock_write_state:
+
+        # Set brightness to night + small deviation (within threshold)
+        # night = 25.5, threshold = 12.75, so 25.5 + 10 = 35.5 (within 25.5 + 12.75 = 38.25)
+        small_deviation_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 36})  # 36 > 25.5 but < 38.25
+        mock_states_get.return_value = small_deviation_state
+
+        # Start morning transition
+        transition_start = datetime(2023, 1, 1, 5, 15, 0, 0)
+        mock_now.return_value = transition_start
+        mock_dt_util.return_value = transition_start
+        mock_light_dt_util.return_value = transition_start
+
+        # Trigger brightness calculation
+        await light._async_calculate_and_apply_brightness(force_update=True)
+        await hass.async_block_till_done()
+
+        # Should NOT detect override for small deviation
+        assert not light._is_overridden, f"Override incorrectly detected for small brightness deviation within threshold. Current: 36, Night: 25.5, Threshold: 12.75"
+
+
 
