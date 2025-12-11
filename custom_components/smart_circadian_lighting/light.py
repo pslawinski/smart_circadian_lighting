@@ -533,23 +533,23 @@ class CircadianLight(LightEntity):
 
                 if mode == "evening_transition":
                     # Evening transition: check if ahead (dimmer than day or warmer than day)
-                    if current_brightness is not None and current_brightness < self._day_brightness_255:
+                    if current_brightness is not None and current_brightness < self._day_brightness_255 - self._manual_override_threshold:
                         should_override = True
-                        _LOGGER.debug(f"[{self._light_entity_id}] Evening transition start: current brightness {current_brightness} < day brightness {self._day_brightness_255}, marking as overridden")
+                        _LOGGER.debug(f"[{self._light_entity_id}] Evening transition start: current brightness {current_brightness} < day brightness {self._day_brightness_255} - threshold {self._manual_override_threshold}, marking as overridden")
                     if (current_color_temp is not None and self._color_temp_schedule and
-                        current_color_temp < self._config.get("day_color_temp_kelvin", 5000)):
+                        current_color_temp < self._config.get("day_color_temp_kelvin", 5000) - self._color_temp_manual_override_threshold):
                         should_override = True
-                        _LOGGER.debug(f"[{self._light_entity_id}] Evening transition start: current color temp {current_color_temp}K < day color temp, marking as overridden")
+                        _LOGGER.debug(f"[{self._light_entity_id}] Evening transition start: current color temp {current_color_temp}K < day color temp - threshold, marking as overridden")
 
                 elif mode == "morning_transition":
                     # Morning transition: check if ahead (brighter than night or cooler than night)
-                    if current_brightness is not None and current_brightness > self._night_brightness_255:
+                    if current_brightness is not None and current_brightness > self._night_brightness_255 + self._manual_override_threshold:
                         should_override = True
-                        _LOGGER.debug(f"[{self._light_entity_id}] Morning transition start: current brightness {current_brightness} > night brightness {self._night_brightness_255}, marking as overridden")
+                        _LOGGER.debug(f"[{self._light_entity_id}] Morning transition start: current brightness {current_brightness} > night brightness {self._night_brightness_255} + threshold {self._manual_override_threshold}, marking as overridden")
                     if (current_color_temp is not None and self._color_temp_schedule and
-                        current_color_temp > self._config.get("night_color_temp_kelvin", 1800)):
+                        current_color_temp > self._config.get("night_color_temp_kelvin", 1800) + self._color_temp_manual_override_threshold):
                         should_override = True
-                        _LOGGER.debug(f"[{self._light_entity_id}] Morning transition start: current color temp {current_color_temp}K > night color temp, marking as overridden")
+                        _LOGGER.debug(f"[{self._light_entity_id}] Morning transition start: current color temp {current_color_temp}K > night color temp + threshold, marking as overridden")
 
                 if should_override:
                     self._is_overridden = True
