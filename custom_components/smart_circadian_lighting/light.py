@@ -10,7 +10,7 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -261,6 +261,17 @@ class CircadianLight(LightEntity):
 
                 # If the light is online, handle other state changes
                 await state_management.handle_entity_state_changed(self, event)
+
+                # Check if Z-Wave light just turned off and clear override
+                if old_state and old_state.state == STATE_ON and new_state.state == STATE_OFF:
+                    entity_registry = er.async_get(self._hass)
+                    entity_entry = entity_registry.async_get(self._light_entity_id)
+                    is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
+
+                    if is_zwave_light and self._is_overridden:
+                        _LOGGER.debug(f"[{self._light_entity_id}] Z-Wave light turned off, clearing manual override")
+                        self._is_overridden = False
+                        await state_management.async_save_override_state(self)
 
                 # Check if light just turned on and needs circadian update
                 if old_state and old_state.state != STATE_ON and new_state.state == STATE_ON:
@@ -582,6 +593,36 @@ class CircadianLight(LightEntity):
             self._attr_color_temp_kelvin = None
             _LOGGER.debug(f"[{self._light_entity_id}] No color temperature schedule available, sun elevation: {sun_elevation}°")
 
+        # For Z-Wave lights, always set parameter 18 regardless of override state
+        # This allows users to "return to schedule" by turning lights off/on
+        entity_registry = er.async_get(self._hass)
+        entity_entry = entity_registry.async_get(self._light_entity_id)
+        is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
+
+        if is_zwave_light and target_brightness_255 is not None:
+            # Always set parameter 18 to current circadian target
+            zwave_brightness = int(target_brightness_255 * 99 / 255)
+            zwave_brightness = max(0, min(99, zwave_brightness))
+
+            try:
+                await asyncio.wait_for(
+                    self._hass.services.async_call(
+                        "zwave_js",
+                        "set_config_parameter",
+                        {
+                            "device_id": entity_entry.device_id,
+                            "parameter": 18,
+                            "value": zwave_brightness,
+                        },
+                    ),
+                    timeout=LIGHT_UPDATE_TIMEOUT,
+                )
+                _LOGGER.debug(f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {target_brightness_255})")
+            except TimeoutError:
+                _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
+            except HomeAssistantError as e:
+                _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
+
         if self._is_overridden:
             light_state = self._hass.states.get(self._light_entity_id)
             if not light_state:
@@ -865,42 +906,16 @@ class CircadianLight(LightEntity):
         light_state = self._hass.states.get(self._light_entity_id)
         is_light_on = light_state and light_state.state == STATE_ON
 
-        # Handle Z-Wave lights specially
-        if is_zwave_light and target_brightness is not None:
-            # For Z-Wave lights, set parameter 18 (custom brightness) to preload for next turn-on
-            # Convert 0-255 brightness to 0-99 scale for Z-Wave parameter
-            zwave_brightness = int(target_brightness * 99 / 255)
-            zwave_brightness = max(0, min(99, zwave_brightness))  # Clamp to 0-99
-
-            try:
-                await asyncio.wait_for(
-                    self._hass.services.async_call(
-                        "zwave_js",
-                        "set_config_parameter",
-                        {
-                            "device_id": entity_entry.device_id,
-                            "parameter": 18,
-                            "value": zwave_brightness,
-                        },
-                    ),
-                    timeout=LIGHT_UPDATE_TIMEOUT,
-                )
-                _LOGGER.debug(f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {target_brightness})")
-            except TimeoutError:
-                _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
-            except HomeAssistantError as e:
-                _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
-
-            # For Z-Wave lights when off, we've set the parameter - no need to call light.turn_on
-            if not is_light_on:
-                _LOGGER.debug(f"[{self._light_entity_id}] Z-Wave light is off, parameter set - skipping light.turn_on")
-                if brightness is None:
-                    self._last_confirmed_brightness = self._brightness
-                self._last_set_brightness = target_brightness
-                if target_color_temp is not None:
-                    self._last_set_color_temp = target_color_temp
-                self._first_update_done = True
-                return
+        # For Z-Wave lights when off, we've already set parameter 18 - no need to call light.turn_on
+        if is_zwave_light and not is_light_on:
+            _LOGGER.debug(f"[{self._light_entity_id}] Z-Wave light is off, parameter already set - skipping light.turn_on")
+            if brightness is None:
+                self._last_confirmed_brightness = self._brightness
+            self._last_set_brightness = target_brightness
+            if target_color_temp is not None:
+                self._last_set_color_temp = target_color_temp
+            self._first_update_done = True
+            return
 
         sun_state = self._hass.states.get("sun.sun")
         sun_elevation = sun_state.attributes.get("elevation") if sun_state else None
