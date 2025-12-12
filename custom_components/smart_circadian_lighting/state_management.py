@@ -10,7 +10,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from .const import SIGNAL_OVERRIDE_STATE_CHANGED
+from .const import DOMAIN, SIGNAL_OVERRIDE_STATE_CHANGED
 
 if TYPE_CHECKING:
     from .light import CircadianLight
