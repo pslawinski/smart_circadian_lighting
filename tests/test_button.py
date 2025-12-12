@@ -1,16 +1,11 @@
 """Tests for button.py - integration tests using pytest-homeassistant-custom-component."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import patch, MagicMock
-
-from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
-
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smart_circadian_lighting.const import DOMAIN
-import custom_components.smart_circadian_lighting.light
 
-from unittest.mock import AsyncMock
 
 @pytest.mark.asyncio
 async def test_global_force_update_button_press(mock_config_entry):

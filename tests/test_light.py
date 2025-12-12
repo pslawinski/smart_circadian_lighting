@@ -1,14 +1,29 @@
 """Tests for Smart Circadian Lighting Z-Wave JS light support."""
 
-import pytest
-from datetime import datetime, time
+import asyncio
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.const import STATE_OFF, STATE_ON
-from homeassistant.core import HomeAssistant, State
-from homeassistant.helpers import entity_registry as er
+from homeassistant.core import State
 
+
+class MockState:
+    def __init__(self, entity_id: str, state: str, attributes: dict | None = None):
+        if attributes is None:
+            attributes = {}
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = MockAttributes(attributes)
+
+class MockAttributes:
+    def __init__(self, attributes: dict):
+        self._attributes = attributes.copy()
+
+    def get(self, key, default=None):
+        return self._attributes.get(key, default)
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smart_circadian_lighting import DOMAIN
@@ -54,6 +69,7 @@ class TestZwaveLightDetection:
     def test_zwave_light_detection_in_state_checks(self):
         """Test that Z-Wave lights are detected in _apply_light_state_checks."""
         from homeassistant.components.light import LightEntityFeature
+
         from custom_components.smart_circadian_lighting.light import CircadianLight
 
         # Create a mock hass object
@@ -107,6 +123,7 @@ class TestZwaveLightDetection:
     def test_non_zwave_light_off_clears_service_data(self):
         """Test that non-Z-Wave lights when off have service data cleared."""
         from homeassistant.components.light import LightEntityFeature
+
         from custom_components.smart_circadian_lighting.light import CircadianLight
 
         # Create a mock hass object
@@ -196,7 +213,7 @@ class TestZwaveParameterSetting:
         mock_ent_reg.async_get.return_value = mock_entity_entry
 
         # Mock light state (off)
-        mock_light_state = State(
+        mock_light_state = MockState(
             entity_id="light.test_zwave",
             state=STATE_OFF,
             attributes={ATTR_BRIGHTNESS: None}
@@ -204,7 +221,7 @@ class TestZwaveParameterSetting:
 
         # Mock all the complex dependencies with optimistic behavior
         with patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=mock_ent_reg), \
-             patch.object(mock_hass, 'states', return_value=mock_light_state), \
+             patch.object(mock_hass, 'states') as mock_states, \
              patch.object(mock_hass, 'services') as mock_services, \
              patch.object(light, 'async_write_ha_state'), \
              patch.object(mock_hass, 'async_create_task', return_value=None), \
@@ -212,9 +229,10 @@ class TestZwaveParameterSetting:
              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
 
             # Set up optimistic mocks
+            mock_states.get.return_value = mock_light_state
             mock_services.async_call = AsyncMock()  # Assume service calls succeed
-            mock_now.return_value = datetime(2023, 1, 1, 2, 0, 0)  # Nighttime
-            mock_datetime.now.return_value = datetime(2023, 1, 1, 2, 0, 0)
+            mock_now.return_value = datetime(2023, 1, 1, 6, 22, 30)  # Mid-morning transition (22.5 min in, brightness ~140.25)
+            mock_datetime.now.return_value = datetime(2023, 1, 1, 6, 22, 30)
 
             # Call _async_calculate_and_apply_brightness
             await light._async_calculate_and_apply_brightness()
@@ -234,18 +252,24 @@ class TestZwaveParameterSetting:
             call_data = zwave_call[0][2]
             assert call_data["device_id"] == "test_device_123"
             assert call_data["parameter"] == 18
-            # Should be set to circadian target (nighttime = 10% = 10)
-            assert call_data["value"] == 10
+            # Should be set to circadian target (mid-morning ~115, int(115*99/255)~45)
+            assert call_data["value"] == 45
 
     @pytest.mark.asyncio
-    async def test_zwave_parameter_setting_when_on(self):
+    async def test_zwave_parameter_setting_when_on(self, mock_states_manager):
         """Test dual setting (parameter + brightness) when Z-Wave light is on."""
         from custom_components.smart_circadian_lighting.light import CircadianLight
 
-        # Create a mock hass object
         mock_hass = MagicMock()
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.async_create_task = MagicMock(return_value=None)
+        mock_hass.loop = asyncio.get_event_loop()
 
-        # Create a minimal CircadianLight instance for testing
+        states = mock_states_manager(mock_hass)
+        states.set_light_state("light.test_zwave", STATE_ON, brightness=50)
+        states.set_sun_state()
+
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock(return_value=None)
         mock_store.async_save = AsyncMock()
@@ -264,49 +288,29 @@ class TestZwaveParameterSetting:
 
         light = CircadianLight(mock_hass, "light.test_zwave", config, entry, mock_store)
 
-        # Mock entity registry for Z-Wave detection
         mock_ent_reg = MagicMock()
         mock_entity_entry = MagicMock()
         mock_entity_entry.platform = "zwave_js"
         mock_entity_entry.device_id = "test_device_123"
         mock_ent_reg.async_get.return_value = mock_entity_entry
 
-        # Mock light state (on)
-        mock_light_state = State(
-            entity_id="light.test_zwave",
-            state=STATE_ON,
-            attributes={ATTR_BRIGHTNESS: 50}
-        )
-
-        # Mock all dependencies with optimistic behavior
         with patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=mock_ent_reg), \
-             patch.object(mock_hass, 'states') as mock_states, \
-             patch.object(mock_hass, 'services') as mock_services, \
-             patch.object(light, 'async_write_ha_state'), \
-             patch.object(mock_hass, 'async_create_task', return_value=None), \
+             patch.object(light, 'async_write_ha_state', new_callable=MagicMock), \
+             patch.object(light, '_set_exact_circadian_targets', new_callable=AsyncMock), \
              patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_now, \
-             patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
+             patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
+             patch('custom_components.smart_circadian_lighting.light.state_management.async_save_override_state', new_callable=AsyncMock):
 
-            mock_states.get.return_value = mock_light_state
-
-            # Set up optimistic mocks
-            mock_services.async_call = AsyncMock()  # Assume service calls succeed
-            mock_now.return_value = datetime(2023, 1, 1, 2, 0, 0)  # Nighttime
+            mock_now.return_value = datetime(2023, 1, 1, 2, 0, 0)
             mock_datetime.now.return_value = datetime(2023, 1, 1, 2, 0, 0)
 
-            # Call _async_calculate_and_apply_brightness
             await light._async_calculate_and_apply_brightness()
 
-            # Verify both Z-Wave parameter and light.turn_on were called
-            assert mock_services.async_call.call_count >= 2
-
-            # Check for Z-Wave parameter call
-            zwave_calls = [call for call in mock_services.async_call.call_args_list
+            zwave_calls = [call for call in mock_hass.services.async_call.call_args_list
                           if call[0][0] == "zwave_js" and call[0][1] == "set_config_parameter"]
             assert len(zwave_calls) > 0, "Z-Wave parameter call not found"
 
-            # Check for light.turn_on call
-            light_calls = [call for call in mock_services.async_call.call_args_list
+            light_calls = [call for call in mock_hass.services.async_call.call_args_list
                           if call[0][0] == "light" and call[0][1] == "turn_on"]
             assert len(light_calls) > 0, "Light turn_on call not found"
 
@@ -389,8 +393,9 @@ class TestZwaveParameterSetting:
     @pytest.mark.asyncio
     async def test_zwave_override_cleared_when_light_turns_off(self):
         """Test that manual override is cleared when Z-Wave light turns off."""
-        from custom_components.smart_circadian_lighting.light import CircadianLight
         from homeassistant.core import Event
+
+        from custom_components.smart_circadian_lighting.light import CircadianLight
 
         # Create a mock hass object
         mock_hass = MagicMock()
@@ -482,3 +487,213 @@ class TestZwaveIntegrationAdvanced:
         """Test force refresh service with real refresh commands."""
         # This would require MockZwaveJsServer with refresh command simulation
         pass
+class TestZwaveTransitionBehavior:
+    """Test Z-Wave param/brightness behavior during transitions."""
+
+    @pytest.mark.parametrize("mode, offset_min, current_brightness", [
+        ("morning", 1, 30),
+        ("morning", 22.5, 130),
+        ("morning", 44, 240),
+        ("evening", 1, 250),
+        ("evening", 22.5, 150),
+        ("evening", 44, 90),
+    ])
+    @pytest.mark.asyncio
+    async def test_transition_on_no_override_param_and_turn_on(self, mode, offset_min, current_brightness, mock_states_manager):
+        """Test param + turn_on during transition, brightness tracking circadian target without override."""
+        from custom_components.smart_circadian_lighting.light import CircadianLight
+
+        mock_hass = MagicMock()
+        mock_hass.data = {}
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.async_create_task = MagicMock(return_value=None)
+        mock_hass.loop = asyncio.get_event_loop()
+
+        states = mock_states_manager(mock_hass)
+        states.set_light_state("light.test_zwave", STATE_ON, brightness=current_brightness)
+        states.set_sun_state()
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test")
+        config = {
+            "lights": ["light.test_zwave"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "05:15:00",
+            "morning_end_time": "06:00:00",
+            "evening_start_time": "20:00:00",
+            "evening_end_time": "21:00:00",
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        light = CircadianLight(mock_hass, "light.test_zwave", config, entry, mock_store)
+
+        mock_hass.data[DOMAIN] = {entry.entry_id: {"manual_overrides_enabled": False}}
+
+        mock_ent_reg = MagicMock()
+        mock_entity_entry = MagicMock()
+        mock_entity_entry.platform = "zwave_js"
+        mock_entity_entry.device_id = "test_device_123"
+        mock_ent_reg.async_get.return_value = mock_entity_entry
+
+        if mode == "morning":
+            start_time = datetime(2023, 1, 1, 5, 15, 0)
+        else:
+            start_time = datetime(2023, 1, 1, 20, 0, 0)
+        test_time = start_time + timedelta(minutes=offset_min)
+
+        with patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=mock_ent_reg), \
+             patch.object(light, 'async_write_ha_state', new_callable=MagicMock), \
+             patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_now, \
+             patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
+             patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_call_later, \
+             patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state', new_callable=AsyncMock) as mock_save_override:
+
+            mock_now.return_value = test_time
+            mock_datetime.now.return_value = test_time
+
+            await light._async_calculate_and_apply_brightness()
+
+            zwave_calls = [call for call in mock_hass.services.async_call.call_args_list
+                          if call[0][0] == "zwave_js" and call[0][1] == "set_config_parameter"]
+            assert len(zwave_calls) > 0, "Z-Wave parameter call not found"
+
+            light_calls = [call for call in mock_hass.services.async_call.call_args_list
+                          if call[0][0] == "light" and call[0][1] == "turn_on"]
+            assert len(light_calls) > 0, "Light turn_on call not found"
+
+            assert not light._is_overridden
+
+    @pytest.mark.asyncio
+    async def test_transition_override_param_only_no_turn_on(self, mock_states_manager):
+        """Test param only during transition ON, override (large diff)."""
+        from custom_components.smart_circadian_lighting.light import CircadianLight
+
+        mock_hass = MagicMock()
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.async_create_task = MagicMock(return_value=None)
+        mock_hass.loop = asyncio.get_event_loop()
+
+        states = mock_states_manager(mock_hass)
+        states.set_light_state("light.test_zwave", STATE_ON, brightness=170)
+        states.set_sun_state()
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test")
+        config = {
+            "lights": ["light.test_zwave"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "05:15:00",
+            "morning_end_time": "06:00:00",
+            "evening_start_time": "20:00:00",
+            "evening_end_time": "21:00:00",
+            "color_temp_enabled": False,
+        }
+
+        light = CircadianLight(mock_hass, "light.test_zwave", config, entry, mock_store)
+
+        mock_ent_reg = MagicMock()
+        mock_entity_entry = MagicMock()
+        mock_entity_entry.platform = "zwave_js"
+        mock_entity_entry.device_id = "test_device_123"
+        mock_ent_reg.async_get.return_value = mock_entity_entry
+
+        test_time = datetime(2023, 1, 1, 5, 37, 30)
+
+        with patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=mock_ent_reg), \
+             patch.object(light, 'async_write_ha_state'), \
+             patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_now, \
+             patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
+             patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_call_later, \
+             patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state') as mock_save_override:
+
+            mock_now.return_value = test_time
+            mock_datetime.now.return_value = test_time
+
+            await light._async_calculate_and_apply_brightness()
+
+            zwave_calls = [call for call in mock_hass.services.async_call.call_args_list
+                          if call[0][0] == "zwave_js" and call[0][1] == "set_config_parameter"]
+            assert len(zwave_calls) > 0, "Z-Wave parameter call not found"
+
+            light_calls = [call for call in mock_hass.services.async_call.call_args_list
+                          if call[0][0] == "light" and call[0][1] == "turn_on"]
+            assert len(light_calls) == 0, "Light turn_on should not be called during override"
+
+            assert light._is_overridden
+
+    @pytest.mark.asyncio
+    async def test_off_param_only_no_turn_on(self):
+        """Test param only when OFF."""
+        from custom_components.smart_circadian_lighting.light import CircadianLight
+
+        mock_hass = MagicMock()
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test")
+        config = {
+            "lights": ["light.test_zwave"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "05:15:00",
+            "morning_end_time": "06:00:00",
+            "evening_start_time": "20:00:00",
+            "evening_end_time": "21:00:00",
+            "color_temp_enabled": False,
+        }
+
+        light = CircadianLight(mock_hass, "light.test_zwave", config, entry, mock_store)
+
+        mock_ent_reg = MagicMock()
+        mock_entity_entry = MagicMock()
+        mock_entity_entry.platform = "zwave_js"
+        mock_entity_entry.device_id = "test_device_123"
+        mock_ent_reg.async_get.return_value = mock_entity_entry
+
+        test_time = datetime(2023, 1, 1, 5, 37, 30)  # mid morning
+
+        mock_light_state = MockState(
+            entity_id="light.test_zwave",
+            state=STATE_OFF,
+            attributes={}
+        )
+
+        with patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=mock_ent_reg), \
+             patch.object(mock_hass, 'states') as mock_states, \
+             patch.object(mock_hass, 'services') as mock_services, \
+             patch.object(light, 'async_write_ha_state'), \
+             patch.object(mock_hass, 'async_create_task', return_value=None), \
+             patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_now, \
+             patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
+
+            mock_states.get.return_value = mock_light_state
+            mock_services.async_call = AsyncMock()
+
+            mock_now.return_value = test_time
+            mock_datetime.now.return_value = test_time
+
+            await light._async_calculate_and_apply_brightness()
+
+            # Verify param called
+            zwave_calls = [call for call in mock_services.async_call.call_args_list
+                          if call[0][0] == "zwave_js" and call[0][1] == "set_config_parameter"]
+            assert len(zwave_calls) > 0, "Z-Wave parameter call not found"
+
+            # Verify turn_on NOT called
+            light_calls = [call for call in mock_services.async_call.call_args_list
+                          if call[0][0] == "light" and call[0][1] == "turn_on"]
+            assert len(light_calls) == 0, "Light turn_on should not be called when OFF"

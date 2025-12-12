@@ -605,12 +605,17 @@ class CircadianLight(LightEntity):
                 if light_state and light_state.state == STATE_ON:
                     current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
                     if current_brightness is not None:
-                        brightness_diff = abs(current_brightness - target_brightness_255)
-                        if brightness_diff > self._manual_override_threshold:
+                        override_triggered = False
+                        if mode == "morning_transition" and current_brightness < (target_brightness_255 - self._manual_override_threshold):
+                            override_triggered = True
+                        elif mode == "evening_transition" and current_brightness > (target_brightness_255 + self._manual_override_threshold):
+                            override_triggered = True
+
+                        if override_triggered:
                             self._is_overridden = True
                             self._override_timestamp = now
                             await state_management.async_save_override_state(self)
-                            _LOGGER.debug(f"[{self._light_entity_id}] Detected manual override during transition: current {current_brightness}, target {target_brightness_255}, diff {brightness_diff}")
+                            _LOGGER.info(f"[{self._light_entity_id}] Detected against-direction override during transition")
 
         # For Z-Wave lights, always set parameter 18 regardless of override state
         # This allows users to "return to schedule" by turning lights off/on
@@ -880,16 +885,6 @@ class CircadianLight(LightEntity):
         current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
         target_brightness = service_data.get(ATTR_BRIGHTNESS)
         target_color_temp = service_data.get(ATTR_COLOR_TEMP_KELVIN)
-
-        mode = self.circadian_mode
-        if mode == "morning_transition" and current_brightness is not None and target_brightness < current_brightness:
-            _LOGGER.debug(f"[{self._light_entity_id}] Skipping update: Morning transition, but target brightness ({target_brightness}) is less than current brightness ({current_brightness}).")
-            service_data.clear()
-            return
-        if mode == "evening_transition" and current_brightness is not None and target_brightness > current_brightness:
-            _LOGGER.debug(f"[{self._light_entity_id}] Skipping update: Evening transition, but target brightness ({target_brightness}) is greater than current brightness ({current_brightness}).")
-            service_data.clear()
-            return
 
         current_color_temp = light_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)
         if not force_update and target_color_temp and current_color_temp and abs(target_color_temp - current_color_temp) < MIN_COLOR_TEMP_CHANGE_FOR_UPDATE:

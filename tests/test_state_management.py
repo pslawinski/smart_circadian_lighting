@@ -1,16 +1,14 @@
 """Tests for state_management.py override logic."""
 
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
-
-# Import framework fixtures
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
-
 from datetime import datetime, time, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+
+# Import framework fixtures
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smart_circadian_lighting import circadian_logic, state_management
 from custom_components.smart_circadian_lighting.circadian_logic import _convert_percent_to_255
@@ -1902,7 +1900,6 @@ class TestOfflineOnlineRecovery:
         mock_light.async_update_light = AsyncMock()
 
         # Mock circadian logic to simulate morning transition
-        import sys
         circadian_mock = MagicMock()
         circadian_mock.is_morning_transition.return_value = True
         circadian_mock.is_evening_transition.return_value = False
@@ -2204,7 +2201,6 @@ class TestOfflineOnlineRecovery:
         mock_light._config = {"evening_override_clear_time": "02:00:00", "morning_override_clear_time": "08:00:00"}
 
         # Mock the circadian logic to simulate evening transition
-        import sys
         circadian_mock = MagicMock()
         circadian_mock.is_evening_transition.return_value = True
         circadian_mock.calculate_brightness.return_value = 250  # Would be 98% if not overridden

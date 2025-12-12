@@ -3,8 +3,7 @@
 import sys
 from unittest.mock import MagicMock
 
-# Mock HA modules before importing
-mock_modules = [
+_MOCK_MODULES = [
     'homeassistant',
     'homeassistant.config_entries',
     'homeassistant.core',
@@ -27,14 +26,32 @@ mock_modules = [
     'homeassistant.util.dt',
 ]
 
-for module in mock_modules:
-    sys.modules[module] = MagicMock()
-
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def mock_homeassistant_modules():
+    """Fixture to mock HA modules with proper isolation per test.
+    
+    This isolates the mocking to individual tests, preventing sys.modules
+    pollution that would affect other test modules.
+    """
+    original_modules = {}
+
+    for module in _MOCK_MODULES:
+        original_modules[module] = sys.modules.get(module)
+        sys.modules[module] = MagicMock()
+
+    yield
+
+    for module in _MOCK_MODULES:
+        if original_modules[module] is None:
+            sys.modules.pop(module, None)
+        else:
+            sys.modules[module] = original_modules[module]
 
 # Copied functions from color_temp_logic.py for testing
 def kelvin_to_mired(kelvin: float) -> int:

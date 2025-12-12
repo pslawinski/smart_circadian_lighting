@@ -1,15 +1,12 @@
 """Improved unit tests for override bugs."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 import logging
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.core import HomeAssistant
-from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN, ATTR_BRIGHTNESS
+import pytest
+from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.const import STATE_ON
-
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,7 +15,6 @@ DOMAIN = "smart_circadian_lighting"
 @pytest.mark.asyncio
 async def test_evening_transition_start_stale_state_sends_command(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
     """Repro: Evening pre-transition dim not detected, sends high target."""
-    from unittest.mock import patch, MagicMock
 
     hass = mock_hass_with_services
     entry = mock_config_entry_factory()
@@ -110,7 +106,6 @@ async def test_evening_transition_start_stale_state_sends_command(mock_hass_with
 @pytest.mark.asyncio
 async def test_morning_alarm_dim_near_end_catchup(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
     """Repro: Morning near end dim sets override but instant catch-up clears."""
-    from unittest.mock import patch, MagicMock
 
     hass = mock_hass_with_services
     entry = mock_config_entry_factory()
@@ -206,7 +201,6 @@ async def test_morning_alarm_dim_near_end_catchup(mock_hass_with_services, mock_
 @pytest.mark.asyncio
 async def test_transition_start_small_deviation_no_override(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
     """Test that small brightness deviations within threshold do not trigger override at transition start."""
-    from unittest.mock import patch, MagicMock
 
     hass = mock_hass_with_services
     entry = mock_config_entry_factory()
@@ -268,7 +262,7 @@ async def test_transition_start_small_deviation_no_override(mock_hass_with_servi
         await hass.async_block_till_done()
 
         # Should NOT detect override for small deviation
-        assert not light._is_overridden, f"Override incorrectly detected for small brightness deviation within threshold. Current: 36, Night: 25.5, Threshold: 12.75"
+        assert not light._is_overridden, "Override incorrectly detected for small brightness deviation within threshold. Current: 36, Night: 25.5, Threshold: 12.75"
 
 
 

@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.light import ATTR_BRIGHTNESS
+from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
@@ -206,9 +206,14 @@ async def async_clear_manual_override(light: CircadianLight) -> None:
 
 
 async def _check_for_manual_override(
-    light: CircadianLight, old_brightness: int | None, new_brightness: int | None, now: datetime
+    light: CircadianLight,
+    old_brightness: int | None,
+    new_brightness: int | None,
+    old_color_temp: int | None = None,
+    new_color_temp: int | None = None,
+    now: datetime = None
 ) -> None:
-    """Check for a manual brightness change that should trigger an override."""
+    """Check for a manual brightness or color temperature change that should trigger an override."""
     from . import circadian_logic  # Defer import to avoid circular dependency
 
     if not light._first_update_done:
@@ -227,44 +232,59 @@ async def _check_for_manual_override(
     if not is_transition:
         return
 
-    if new_brightness is None or old_brightness is None or light._brightness is None:
-        return
-
-    brightness_diff = new_brightness - old_brightness
     is_morning = circadian_logic.is_morning_transition(
         now, light._temp_transition_override, light._config
     )
 
-    # An override is triggered if the user adjusts against the transition's direction
-    # AND the new brightness level crosses the circadian setpoint by the threshold.
-    override_triggered = False
-    if is_morning and brightness_diff < 0:  # Dimming during morning transition
-        if new_brightness < (light._brightness - light._manual_override_threshold):
-            override_triggered = True
-    elif not is_morning and brightness_diff > 0:  # Brightening during evening transition
-        if new_brightness > (light._brightness + light._manual_override_threshold):
-            override_triggered = True
+    brightness_override = False
+    color_temp_override = False
 
-    if override_triggered:
+    # Check brightness override
+    if new_brightness is not None and old_brightness is not None and light._brightness is not None:
+        brightness_diff = new_brightness - old_brightness
+
+        # An override is triggered if the user adjusts against the transition's direction
+        # AND the new brightness level crosses the circadian setpoint by the threshold.
+        if is_morning and brightness_diff < 0:  # Dimming during morning transition
+            if new_brightness < (light._brightness - light._manual_override_threshold):
+                brightness_override = True
+        elif not is_morning and brightness_diff > 0:  # Brightening during evening transition
+            if new_brightness > (light._brightness + light._manual_override_threshold):
+                brightness_override = True
+
         # Optimistic update filtering:
         # If the old_brightness is very close to our last-set target brightness,
         # it's likely this isn't a manual override, but a correction from
         # an optimistic state report from the light.
-        if abs(old_brightness - light._brightness) <= 5:
-            _LOGGER.debug(
-                f"[{light._light_entity_id}] Ignoring potential override. The previous brightness ({old_brightness}) "
-                f"was likely an optimistic update matching the target brightness ({light._brightness})."
-            )
-            return
+        if brightness_override and abs(old_brightness - light._brightness) <= 5:
+            brightness_override = False
 
+    # Check color temperature override
+    if (new_color_temp is not None and old_color_temp is not None and
+        light._color_temp_kelvin is not None):
+        color_temp_diff = abs(new_color_temp - old_color_temp)
+        # Any significant color temperature change during transition is an override
+        # since color temp transitions are gradual and user changes are intentional
+        if color_temp_diff > light._color_temp_manual_override_threshold:
+            color_temp_override = True
+
+    if brightness_override:
         _LOGGER.info(
-            f"[{light._light_entity_id}] Manual override detected for {light.name}. "
+            f"[{light._light_entity_id}] Manual brightness override detected for {light.name}. "
             f"Brightness changed from {old_brightness} to {new_brightness} during {'morning' if is_morning else 'evening'} transition, "
             f"exceeding setpoint {light._brightness} by threshold."
         )
         light._is_overridden = True
         await async_save_override_state(light)
-        # Add a small cooldown to prevent multiple override detections from a single user action
+        light._event_throttle_time = now + timedelta(seconds=5)
+    elif color_temp_override:
+        _LOGGER.info(
+            f"[{light._light_entity_id}] Manual color temperature override detected for {light.name}. "
+            f"Color temperature changed from {old_color_temp}K to {new_color_temp}K during {'morning' if is_morning else 'evening'} transition, "
+            f"exceeding threshold {light._color_temp_manual_override_threshold}K."
+        )
+        light._is_overridden = True
+        await async_save_override_state(light)
         light._event_throttle_time = now + timedelta(seconds=5)
 
 
@@ -286,6 +306,7 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
     )
     is_online = new_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
     new_brightness = new_state.attributes.get(ATTR_BRIGHTNESS)
+    new_color_temp = new_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)
 
     # Handle offline transition
     if was_online and not is_online:
@@ -309,9 +330,16 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
     else:  # was already online
         old_brightness = old_state.attributes.get(ATTR_BRIGHTNESS) if old_state else None
 
+    # Determine the color temperature before the change
+    if not was_online:  # came online
+        old_color_temp = None  # Can't determine previous color temp when coming online
+    else:  # was already online
+        old_color_temp = old_state.attributes.get(ATTR_COLOR_TEMP_KELVIN) if old_state else None
+
     _LOGGER.debug(
         f"[{light._light_entity_id}] State change event: "
-        f"old_brightness={old_brightness}, new_brightness={new_brightness}"
+        f"old_brightness={old_brightness}, new_brightness={new_brightness}, "
+        f"old_color_temp={old_color_temp}, new_color_temp={new_color_temp}"
     )
 
     # Update the last reported brightness for the next event
@@ -328,4 +356,4 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
         return
 
     if was_online:
-        await _check_for_manual_override(light, old_brightness, new_brightness, now)
+        await _check_for_manual_override(light, old_brightness, new_brightness, old_color_temp, new_color_temp, now)
