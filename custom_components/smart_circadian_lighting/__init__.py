@@ -9,7 +9,7 @@ from homeassistant.helpers.service import async_register_admin_service
 from .const import DOMAIN
 
 LIGHT_PLATFORM = ["light"]
-DEPENDENT_PLATFORMS = ["button", "binary_sensor", "sensor"]
+DEPENDENT_PLATFORMS = ["button", "binary_sensor", "sensor", "switch"]
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -78,6 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     domain_data[entry.entry_id] = {
         "config": config,
         "circadian_lights": [],
+        "manual_overrides_enabled": True,
     }
 
     # Set up the light platform first and wait for it to finish

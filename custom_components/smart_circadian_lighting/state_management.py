@@ -214,6 +214,10 @@ async def _check_for_manual_override(
     if not light._first_update_done:
         return
 
+    # Check if manual overrides are enabled
+    if not light._hass.data[DOMAIN][light._entry.entry_id].get("manual_overrides_enabled", True):
+        return
+
     # Override detection is only active during transitions
     is_transition = circadian_logic.is_morning_transition(
         now, light._temp_transition_override, light._config
