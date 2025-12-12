@@ -593,6 +593,19 @@ class CircadianLight(LightEntity):
             self._attr_color_temp_kelvin = None
             _LOGGER.debug(f"[{self._light_entity_id}] No color temperature schedule available, sun elevation: {sun_elevation}°")
 
+        # Check for manual overrides during transitions
+        if is_currently_transition and not self._is_overridden:
+            light_state = self._hass.states.get(self._light_entity_id)
+            if light_state and light_state.state == STATE_ON:
+                current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
+                if current_brightness is not None:
+                    brightness_diff = abs(current_brightness - target_brightness_255)
+                    if brightness_diff > self._manual_override_threshold:
+                        self._is_overridden = True
+                        self._override_timestamp = now
+                        await state_management.async_save_override_state(self)
+                        _LOGGER.debug(f"[{self._light_entity_id}] Detected manual override during transition: current {current_brightness}, target {target_brightness_255}, diff {brightness_diff}")
+
         # For Z-Wave lights, always set parameter 18 regardless of override state
         # This allows users to "return to schedule" by turning lights off/on
         entity_registry = er.async_get(self._hass)

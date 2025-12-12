@@ -157,7 +157,8 @@ async def test_morning_alarm_dim_near_end_catchup(mock_hass_with_services, mock_
          patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
          patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
          patch.object(light._hass.states, 'get') as mock_states_get, \
-         patch.object(light, 'async_write_ha_state') as mock_write_state:
+         patch.object(light, 'async_write_ha_state') as mock_write_state, \
+         patch.object(light._hass, 'async_create_task', return_value=None):
 
         # Create State objects using our fixture factory to avoid global mocking
         initial_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 200})
