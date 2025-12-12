@@ -31,12 +31,12 @@ class DisableManualOverridesSwitch(SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_name = "Disable Manual Overrides"
-    _attr_unique_id = f"{config_entry.entry_id}_disable_manual_overrides"
 
     def __init__(self, config_entry: ConfigEntry, domain_data: dict) -> None:
         """Initialize the switch."""
         self._config_entry = config_entry
         self._domain_data = domain_data
+        self._attr_unique_id = f"{config_entry.entry_id}_disable_manual_overrides"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, config_entry.entry_id)},
             name=config_entry.title,
