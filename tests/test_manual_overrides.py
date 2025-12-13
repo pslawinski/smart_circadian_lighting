@@ -614,10 +614,23 @@ class TestOverrideTriggeringConditions:
         self, mock_hass, mock_state_factory, light_scale, device_to_ha, ha_to_device
     ):
         """T-1.6b: Morning BVA - Just Below Boundary.
-        
-        Circadian=150, Threshold=25, Boundary=125.
-        New brightness=124 (just below boundary).
-        Override SHOULD be triggered. Tests quantization at boundary.
+
+        Tests boundary value analysis for morning transition override triggering.
+        When user dims light just below the circadian setpoint minus threshold,
+        override should be triggered.
+
+        Test setup:
+        - Circadian target: 150 (HA 0-255 scale)
+        - Threshold: 25 (HA 0-255 scale)
+        - Boundary: 150 - 25 = 125 (HA scale)
+        - User dims from 160 to 124 (intended to be just below 125)
+
+        Expected behavior: Override triggered because 124 < 125.
+
+        Current bug: Due to brightness scale quantization (device native -> HA conversion),
+        the actual HA brightness after conversion may not be exactly 124, causing
+        the test to fail when it should pass. The code doesn't account for maximum
+        quantization error as required by manual_overrides.md Section 4.
         """
         hass = mock_hass
         config = {
@@ -707,10 +720,23 @@ class TestOverrideTriggeringConditions:
         self, mock_hass, mock_state_factory, light_scale, device_to_ha, ha_to_device
     ):
         """T-1.6c: Morning BVA - Exactly At Boundary.
-        
-        Circadian=150, Threshold=25, Boundary=125.
-        New brightness=125 (exactly at boundary).
-        Override should NOT be triggered (must be BEYOND).
+
+        Tests boundary value analysis for morning transition override triggering.
+        When user dims light exactly to the circadian setpoint minus threshold,
+        override should NOT be triggered (must be beyond the boundary).
+
+        Test setup:
+        - Circadian target: 150 (HA 0-255 scale)
+        - Threshold: 25 (HA 0-255 scale)
+        - Boundary: 150 - 25 = 125 (HA scale)
+        - User dims from 160 to 125 (exactly at boundary)
+
+        Expected behavior: No override because 125 == 125 (not < 125).
+
+        Current bug: Due to brightness scale quantization, the actual HA brightness
+        after conversion may be slightly different from 125, causing unexpected
+        override triggering. The code doesn't implement dynamic quantization error
+        thresholds as required by manual_overrides.md Section 4.
         """
         hass = mock_hass
         config = {
@@ -799,10 +825,23 @@ class TestOverrideTriggeringConditions:
         self, mock_hass, mock_state_factory, light_scale, device_to_ha, ha_to_device
     ):
         """T-1.6d: Morning BVA - Just Above Boundary.
-        
-        Circadian=150, Threshold=25, Boundary=125.
-        New brightness=126 (just above boundary).
-        Override should NOT be triggered. Tests quantization at boundary.
+
+        Tests boundary value analysis for morning transition override triggering.
+        When user dims light just above the circadian setpoint minus threshold,
+        override should NOT be triggered.
+
+        Test setup:
+        - Circadian target: 150 (HA 0-255 scale)
+        - Threshold: 25 (HA 0-255 scale)
+        - Boundary: 150 - 25 = 125 (HA scale)
+        - User dims from 160 to 126 (just above boundary)
+
+        Expected behavior: No override because 126 > 125.
+
+        Current bug: Due to brightness scale quantization, the actual HA brightness
+        after conversion may be at or below the boundary instead of above,
+        causing incorrect override triggering. The code fails to handle quantization
+        errors dynamically based on light scale as specified in manual_overrides.md.
         """
         hass = mock_hass
         config = {
@@ -1076,10 +1115,23 @@ class TestOverrideTriggeringConditions:
         self, mock_hass, mock_state_factory, light_scale, device_to_ha, ha_to_device
     ):
         """T-1.7b: Evening BVA - Just Above Boundary.
-        
-        Circadian=100, Threshold=25, Boundary=125.
-        New brightness=126 (just above boundary).
-        Override SHOULD be triggered. Tests quantization at boundary.
+
+        Tests boundary value analysis for evening transition override triggering.
+        When user brightens light just above the circadian setpoint plus threshold,
+        override should be triggered.
+
+        Test setup:
+        - Circadian target: 100 (HA 0-255 scale)
+        - Threshold: 25 (HA 0-255 scale)
+        - Boundary: 100 + 25 = 125 (HA scale)
+        - User brightens from 90 to 126 (just above boundary)
+
+        Expected behavior: Override triggered because 126 > 125.
+
+        Current bug: Due to brightness scale quantization, the actual HA brightness
+        after conversion may not exceed the boundary, causing the test to fail
+        when it should pass. The code doesn't implement quantization error handling
+        as required by manual_overrides.md Section 4.
         """
         hass = mock_hass
         config = {
@@ -1169,10 +1221,23 @@ class TestOverrideTriggeringConditions:
         self, mock_hass, mock_state_factory, light_scale, device_to_ha, ha_to_device
     ):
         """T-1.7c: Evening BVA - Exactly At Boundary.
-        
-        Circadian=100, Threshold=25, Boundary=125.
-        New brightness=125 (exactly at boundary).
-        Override should NOT be triggered (must be BEYOND).
+
+        Tests boundary value analysis for evening transition override triggering.
+        When user brightens light exactly to the circadian setpoint plus threshold,
+        override should NOT be triggered (must be beyond the boundary).
+
+        Test setup:
+        - Circadian target: 100 (HA 0-255 scale)
+        - Threshold: 25 (HA 0-255 scale)
+        - Boundary: 100 + 25 = 125 (HA scale)
+        - User brightens from 90 to 125 (exactly at boundary)
+
+        Expected behavior: No override because 125 == 125 (not > 125).
+
+        Current bug: Due to brightness scale quantization, the actual HA brightness
+        after conversion may exceed the boundary, causing unexpected override
+        triggering. The code lacks dynamic quantization error calculation
+        per manual_overrides.md Section 4 requirements.
         """
         hass = mock_hass
         config = {
