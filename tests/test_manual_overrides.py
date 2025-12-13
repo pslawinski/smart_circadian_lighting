@@ -292,7 +292,7 @@ class TestBrightnessScaleConversion:
 
 class TestThresholdCalculation:
     """Unit tests for threshold calculation from config percentage.
-    
+
     Per manual_overrides.md, the threshold is used to determine whether
     a brightness change crosses the setpoint boundary.
     """
@@ -301,7 +301,7 @@ class TestThresholdCalculation:
         """Test threshold calculation for 5% config value."""
         threshold_percent = 5
         expected_255_scale = _convert_percent_to_255(threshold_percent)
-        
+
         assert expected_255_scale == int(round(5 * 255 / 100)), \
             f"5% should convert to {int(round(5 * 255 / 100))} in 0-255 scale"
 
@@ -309,25 +309,60 @@ class TestThresholdCalculation:
         """Test threshold calculation for 10% config value."""
         threshold_percent = 10
         expected_255_scale = _convert_percent_to_255(threshold_percent)
-        
+
         assert expected_255_scale == int(round(10 * 255 / 100)), \
             f"10% should convert to {int(round(10 * 255 / 100))} in 0-255 scale"
 
     def test_threshold_boundary_calculations(self):
         """Test boundary calculations with different thresholds and circadian targets.
-        
+
         This verifies the math used in override detection:
         - Morning: override if new_brightness < (circadian_target - threshold)
         - Evening: override if new_brightness > (circadian_target + threshold)
         """
         circadian_target = 150
         threshold = 25
-        
+
         morning_boundary = circadian_target - threshold
         evening_boundary = circadian_target + threshold
-        
+
         assert morning_boundary == 125, f"Morning boundary should be 125, got {morning_boundary}"
         assert evening_boundary == 175, f"Evening boundary should be 175, got {evening_boundary}"
+
+
+class TestColorTempThresholdCalculation:
+    """Unit tests for color temperature threshold calculation from config.
+
+    Per state_management.py, color temperature override is triggered if
+    the absolute change exceeds the configured threshold (default 100K).
+    """
+
+    def test_color_temp_threshold_default(self):
+        """Test default color temperature threshold is 100K."""
+        config = {}
+        threshold = config.get("color_temp_manual_override_threshold", 100)
+        assert threshold == 100, f"Default color temp threshold should be 100K, got {threshold}"
+
+    def test_color_temp_threshold_custom(self):
+        """Test custom color temperature threshold."""
+        config = {"color_temp_manual_override_threshold": 50}
+        threshold = config.get("color_temp_manual_override_threshold", 100)
+        assert threshold == 50, f"Custom color temp threshold should be 50K, got {threshold}"
+
+    def test_color_temp_change_detection(self):
+        """Test color temperature change detection logic.
+
+        Override is triggered if abs(new_temp - old_temp) > threshold.
+        """
+        threshold = 100
+
+        # Small change should not trigger
+        small_change = abs(3000 - 2950)
+        assert small_change <= threshold, f"Small change {small_change} should not exceed threshold {threshold}"
+
+        # Large change should trigger
+        large_change = abs(3000 - 3200)
+        assert large_change > threshold, f"Large change {large_change} should exceed threshold {threshold}"
 
 
 class TestTransitionDirectionDetection:
@@ -374,14 +409,194 @@ class TestTransitionDirectionDetection:
 
 class TestIntegrationScenarios:
     """Integration test scenarios with documented quantization error handling.
-    
+
     Per manual_overrides.md Section 4:
     - Account for brightness scale quantization errors
     - Dynamically calculate acceptable error threshold based on device scale
     - Only trigger override if brightness moves AGAINST direction AND crosses threshold
-    
+
     These tests use realistic device values and verify the complete conversion chain.
     """
+
+
+class TestColorTempIntegrationScenarios:
+    """Integration test scenarios for color temperature override detection.
+
+    Color temperature override is simpler than brightness:
+    - No scale conversion or quantization errors
+    - Override triggered if absolute change > threshold during transition
+    - Threshold is configurable (default 100K)
+
+    These tests verify color temperature override detection with realistic values.
+    """
+
+    @pytest.mark.asyncio
+    async def test_color_temp_override_during_morning_transition(
+        self, mock_hass, mock_state_factory
+    ):
+        """Integration test: Color temperature override during morning transition.
+
+        Scenario:
+        - Morning transition (color temp increasing from warm to cool)
+        - Circadian target: 3000K
+        - Threshold: 100K
+        - User changes to 3200K (200K change > 100K threshold)
+
+        Expected: Override triggered because change exceeds threshold during transition
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": True,
+            "day_color_temp_kelvin": 4800,
+            "night_color_temp_kelvin": 1800,
+            "color_temp_manual_override_threshold": 100,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_ct_integration_morning", data=config)
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._color_temp_kelvin = 3000
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        morning_transition = datetime(2023, 1, 1, 6, 30, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+              patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+              patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+              patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+              patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+              patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = morning_transition
+            mock_dt_util.return_value = morning_transition
+            mock_dt_utcnow.return_value = morning_transition
+            mock_datetime.now.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 3000}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 3200}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert light._is_overridden, (
+                f"Color temp override not triggered: circadian={light._color_temp_kelvin}K, "
+                f"change=200K, threshold=100K"
+            )
+
+    @pytest.mark.asyncio
+    async def test_color_temp_no_override_small_change_during_evening_transition(
+        self, mock_hass, mock_state_factory
+    ):
+        """Integration test: No color temperature override for small change during evening transition.
+
+        Scenario:
+        - Evening transition (color temp decreasing from cool to warm)
+        - Circadian target: 4000K
+        - Threshold: 100K
+        - User changes to 4080K (80K change < 100K threshold)
+
+        Expected: No override because change is within threshold
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": True,
+            "day_color_temp_kelvin": 4800,
+            "night_color_temp_kelvin": 1800,
+            "color_temp_manual_override_threshold": 100,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_ct_integration_evening", data=config)
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._color_temp_kelvin = 4000
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        evening_transition = datetime(2023, 1, 1, 19, 45, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+              patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+              patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+              patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+              patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+              patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = evening_transition
+            mock_dt_util.return_value = evening_transition
+            mock_dt_utcnow.return_value = evening_transition
+            mock_datetime.now.return_value = evening_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 4000}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 4080}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert not light._is_overridden, (
+                f"Color temp override incorrectly triggered: circadian={light._color_temp_kelvin}K, "
+                f"change=80K, threshold=100K"
+            )
 
     @pytest.mark.asyncio
     async def test_morning_override_with_zwave_quantization_error(
@@ -765,10 +980,339 @@ class TestOverrideTriggeringConditions:
                 not light._is_overridden
             ), "Override incorrectly triggered outside transition period"
 
+
+class TestColorTempOverrideTriggeringConditions:
+    """Test Scenario Group CT-1: Conditions for triggering color temperature override.
+
+    Color temperature override is triggered during transition if the absolute
+    change exceeds the threshold (default 100K), regardless of direction.
+    """
+
     @pytest.mark.asyncio
-    async def test_t_1_2_morning_transition_wrong_direction_no_override(
+    async def test_ct_1_1_normal_operation_no_override_outside_transition(
         self, mock_hass, mock_state_factory
     ):
+        """CT-1.1: Normal Operation - No color temp override outside transition period.
+
+        Set time to midday (no transition active).
+        Change color temperature manually.
+        Verify no override is triggered.
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 5,
+            "color_temp_enabled": True,
+            "day_color_temp_kelvin": 4800,
+            "night_color_temp_kelvin": 1800,
+            "color_temp_manual_override_threshold": 100,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_ct_1_1", data=config)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._color_temp_kelvin = 3000  # Set current circadian color temp
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        # Set time to midday (12:00) - no transition active
+        midday = datetime(2023, 1, 1, 12, 0, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.now"
+        ) as mock_dt_util:
+            mock_now.return_value = midday
+            mock_dt_util.return_value = midday
+
+            initial_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 3000}
+            )
+            adjusted_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 4000}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light,
+                MagicMock(
+                    data={"old_state": initial_state, "new_state": adjusted_state}
+                ),
+            )
+
+            # Outside transition, override should NOT be triggered
+            assert (
+                not light._is_overridden
+            ), "Color temp override incorrectly triggered outside transition period"
+
+    @pytest.mark.asyncio
+    async def test_ct_1_2_transition_small_change_no_override(
+        self, mock_hass, mock_state_factory
+    ):
+        """CT-1.2: Transition, Small Change - No override for changes within threshold.
+
+        During morning transition, change color temperature by less than threshold.
+        Override should NOT be triggered.
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 5,
+            "color_temp_enabled": True,
+            "day_color_temp_kelvin": 4800,
+            "night_color_temp_kelvin": 1800,
+            "color_temp_manual_override_threshold": 100,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_ct_1_2", data=config)
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._color_temp_kelvin = 3000
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        # Set time to morning transition (06:30)
+        morning_transition = datetime(2023, 1, 1, 6, 30, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.now"
+        ) as mock_dt_util, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.utcnow"
+        ) as mock_dt_utcnow, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_call_later"
+        ) as mock_call_later, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_dispatcher_send"
+        ) as mock_dispatcher:
+            mock_now.return_value = morning_transition
+            mock_dt_util.return_value = morning_transition
+            mock_dt_utcnow.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            # Small change: 3000K to 3050K (50K change < 100K threshold)
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 3000}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 3050}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert (
+                not light._is_overridden
+            ), "Color temp override incorrectly triggered for small change within threshold"
+
+    @pytest.mark.asyncio
+    async def test_ct_1_3_transition_large_change_triggers_override(
+        self, mock_hass, mock_state_factory
+    ):
+        """CT-1.3: Transition, Large Change - Override triggered for changes exceeding threshold.
+
+        During evening transition, change color temperature by more than threshold.
+        Override SHOULD be triggered.
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 5,
+            "color_temp_enabled": True,
+            "day_color_temp_kelvin": 4800,
+            "night_color_temp_kelvin": 1800,
+            "color_temp_manual_override_threshold": 100,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_ct_1_3", data=config)
+        hass = mock_hass
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._color_temp_kelvin = 4000
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        # Set time to evening transition (19:45)
+        evening_transition = datetime(2023, 1, 1, 19, 45, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.now"
+        ) as mock_dt_util, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.utcnow"
+        ) as mock_dt_utcnow, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_call_later"
+        ) as mock_call_later, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_dispatcher_send"
+        ) as mock_dispatcher:
+            mock_now.return_value = evening_transition
+            mock_dt_util.return_value = evening_transition
+            mock_dt_utcnow.return_value = evening_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            # Large change: 4000K to 4200K (200K change > 100K threshold)
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 4000}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 4200}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert (
+                light._is_overridden
+            ), "Color temp override not triggered for large change exceeding threshold"
+            assert light._override_timestamp is not None
+
+    @pytest.mark.asyncio
+    async def test_ct_1_4_exact_threshold_edge_case_no_override(
+        self, mock_hass, mock_state_factory
+    ):
+        """CT-1.4: Exact Threshold Edge Case - No override at exact threshold.
+
+        During transition, change color temperature by exactly the threshold.
+        Override should NOT be triggered (must exceed threshold).
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 5,
+            "color_temp_enabled": True,
+            "day_color_temp_kelvin": 4800,
+            "night_color_temp_kelvin": 1800,
+            "color_temp_manual_override_threshold": 100,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_ct_1_4", data=config)
+        hass = mock_hass
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._color_temp_kelvin = 3000
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        # Set time to morning transition
+        morning_transition = datetime(2023, 1, 1, 6, 30, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.now"
+        ) as mock_dt_util, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.utcnow"
+        ) as mock_dt_utcnow, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_call_later"
+        ) as mock_call_later, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_dispatcher_send"
+        ) as mock_dispatcher:
+            mock_now.return_value = morning_transition
+            mock_dt_util.return_value = morning_transition
+            mock_dt_utcnow.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            # Exact threshold change: 3000K to 3100K (100K change == threshold)
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 3000}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_COLOR_TEMP_KELVIN: 3100}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            # At exact threshold should NOT trigger (must exceed threshold)
+            assert (
+                not light._is_overridden
+            ), "Color temp override incorrectly triggered at exact threshold boundary"
         """T-1.2: Morning Transition, Wrong Direction.
 
         Morning transition (brightness increasing).
