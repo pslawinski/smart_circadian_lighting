@@ -26,6 +26,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.smart_circadian_lighting import DOMAIN
 from custom_components.smart_circadian_lighting.light import CircadianLight
 from custom_components.smart_circadian_lighting.circadian_logic import _convert_percent_to_255
+from custom_components.smart_circadian_lighting import state_management
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ def mock_hass():
     hass.bus = MagicMock()
     hass.bus.async_fire = AsyncMock()
     hass.data = {}
-    hass.loop = asyncio.get_event_loop()
+    hass.loop = asyncio.new_event_loop()
     hass.async_create_task = MagicMock(return_value=None)
     return hass
 
@@ -572,6 +573,116 @@ class TestIntegrationScenarios:
                 f"Code doesn't account for quantization error as required by manual_overrides.md Section 4."
             )
 
+    @pytest.mark.asyncio
+    async def test_no_override_during_hardware_transition(
+        self, mock_hass, mock_state_factory
+    ):
+        """Test that no override is triggered for intermediate brightness during hardware transition.
+
+        Per manual_overrides.md Section 4: "No override is triggered as long as each reported
+        brightness is between the transition start brightness and the target brightness (inclusive),
+        accounting for quantization error."
+
+        Scenario:
+        - Morning transition: circadian target increasing from 25 to 198
+        - Hardware transition commanded: brightness=198 with transition=60 seconds
+        - Light reports starting brightness=25 almost immediately after transition starts
+        - Then reports intermediate brightness=100 during transition
+        - Should NOT trigger override, as 100 is between start (25) and target (198)
+        - Multiple updates during transition period for accuracy
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_hardware_transition", data=config)
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._brightness = 25  # Start of transition
+
+        # Simulate active hardware transition state
+        light._transition_target = 198
+        light._transition_start_time = datetime(2023, 1, 1, 6, 30, 0)
+        light._update_interval = 60
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        morning_transition = datetime(2023, 1, 1, 6, 30, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+              patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+              patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+              patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+              patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+              patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher, \
+              patch("homeassistant.helpers.entity_registry.async_get") as mock_er_get:
+            mock_now.return_value = morning_transition
+            mock_dt_util.return_value = morning_transition
+            mock_dt_utcnow.return_value = morning_transition
+            mock_datetime.now.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+            mock_er_get.return_value = MagicMock()
+
+            # First update: Light reports starting brightness=25 almost immediately after transition starts
+            # This should not trigger override as it's the expected starting point
+            start_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 25}  # Starting value
+            )
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": None, "new_state": start_state})
+            )
+            assert not light._is_overridden, "Override incorrectly triggered at transition start (brightness=25)"
+
+            # Second update: Light reports intermediate brightness=100 during transition
+            # This should NOT trigger override because 100 is between start (25) and target (198)
+            intermediate_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 100}  # Intermediate value
+            )
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": start_state, "new_state": intermediate_state})
+            )
+            assert not light._is_overridden, (
+                "Override incorrectly triggered for intermediate brightness (100) during hardware transition. "
+                "100 is between start (25) and target (198), so should not trigger override."
+            )
+
+            # Third update: Light reports another intermediate value=150 during transition
+            # This should still NOT trigger override as 150 is still between 25 and 198
+            later_intermediate_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 150}  # Later intermediate value
+            )
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": intermediate_state, "new_state": later_intermediate_state})
+            )
+            assert not light._is_overridden, (
+                "Override incorrectly triggered for later intermediate brightness (150) during hardware transition. "
+                "150 is between start (25) and target (198), so should not trigger override."
+            )
+
 
 class TestOverrideTriggeringConditions:
     """Test Scenario Group 1: Conditions for triggering an override (manual_overrides.md Section 1)"""
@@ -680,8 +791,6 @@ class TestOverrideTriggeringConditions:
         }
 
         entry = MockConfigEntry(domain=DOMAIN, unique_id="test_1_2", data=config)
-        hass = mock_hass
-        entry.add_to_hass(hass)
         entry.add_to_hass(hass)
 
         mock_store = MagicMock()
@@ -705,9 +814,18 @@ class TestOverrideTriggeringConditions:
 
         with patch("homeassistant.util.dt.now") as mock_now, patch(
             "custom_components.smart_circadian_lighting.state_management.dt_util.now"
-        ) as mock_dt_util:
+        ) as mock_dt_util, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.utcnow"
+        ) as mock_dt_utcnow, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_call_later"
+        ) as mock_call_later, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_dispatcher_send"
+        ) as mock_dispatcher:
             mock_now.return_value = morning_transition
             mock_dt_util.return_value = morning_transition
+            mock_dt_utcnow.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
 
             # User brightens light (same direction as transition)
             old_state = mock_state_factory(
@@ -763,7 +881,7 @@ class TestOverrideTriggeringConditions:
 
         light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
         light._first_update_done = True
-        light._brightness = 128  # 50% brightness (circadian target)
+        light._brightness = 150  # High brightness (circadian target for morning)
 
         hass.data[DOMAIN] = {
             entry.entry_id: {
@@ -852,9 +970,18 @@ class TestOverrideTriggeringConditions:
 
         with patch("homeassistant.util.dt.now") as mock_now, patch(
             "custom_components.smart_circadian_lighting.state_management.dt_util.now"
-        ) as mock_dt_util:
+        ) as mock_dt_util, patch(
+            "custom_components.smart_circadian_lighting.state_management.dt_util.utcnow"
+        ) as mock_dt_utcnow, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_call_later"
+        ) as mock_call_later, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_dispatcher_send"
+        ) as mock_dispatcher:
             mock_now.return_value = morning_transition
             mock_dt_util.return_value = morning_transition
+            mock_dt_utcnow.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
 
             # User dims from 160 to 145 (within threshold of 25)
             old_state = mock_state_factory(
@@ -926,9 +1053,15 @@ class TestOverrideTriggeringConditions:
 
         with patch("homeassistant.util.dt.now") as mock_now, patch(
             "custom_components.smart_circadian_lighting.state_management.dt_util.now"
-        ) as mock_dt_util:
+        ) as mock_dt_util, patch(
+            "custom_components.smart_circadian_lighting.state_management.async_call_later"
+        ) as mock_call_later, patch(
+            "homeassistant.helpers.dispatcher.async_dispatcher_send"
+        ) as mock_dispatcher:
             mock_now.return_value = morning_transition
             mock_dt_util.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
 
             # User dims from 165 to 125 (exactly at threshold: 150 - 25)
             old_state = mock_state_factory(
@@ -1124,6 +1257,10 @@ class TestOverrideTriggeringConditions:
             }
         }
 
+        # Set up entity registry in hass.data
+        from homeassistant.helpers.entity_registry import DATA_REGISTRY
+        hass.data[DATA_REGISTRY] = MagicMock()
+
         morning_transition = datetime(2023, 1, 1, 6, 30, 0)
 
         with patch("homeassistant.util.dt.now") as mock_now, \
@@ -1131,7 +1268,8 @@ class TestOverrideTriggeringConditions:
              patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
              patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
              patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
-             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher, \
+             patch("homeassistant.helpers.entity_registry.async_get") as mock_er_get:
             mock_now.return_value = morning_transition
             mock_dt_util.return_value = morning_transition
             mock_dt_utcnow.return_value = morning_transition
@@ -1230,6 +1368,11 @@ class TestOverrideTriggeringConditions:
             }
         }
 
+        # Set up entity registry in hass.data
+        from homeassistant.helpers.entity_registry import DATA_REGISTRY
+        hass.data[DATA_REGISTRY] = MagicMock()
+        hass.data['entity_registry'] = MagicMock()
+
         morning_transition = datetime(2023, 1, 1, 6, 30, 0)
 
         with patch("homeassistant.util.dt.now") as mock_now, \
@@ -1237,13 +1380,16 @@ class TestOverrideTriggeringConditions:
              patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
              patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
              patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
-             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher, \
+             patch("homeassistant.helpers.entity_registry.async_get") as mock_er_get:
             mock_now.return_value = morning_transition
             mock_dt_util.return_value = morning_transition
             mock_dt_utcnow.return_value = morning_transition
             mock_datetime.now.return_value = morning_transition
             mock_call_later.return_value = MagicMock()
             mock_dispatcher.return_value = None
+            mock_er_get.return_value = MagicMock()
+            mock_er_get.return_value = MagicMock()
 
             old_brightness_device_native = ha_to_device(160)
             new_brightness_device_native = ha_to_device(125)
@@ -1264,7 +1410,7 @@ class TestOverrideTriggeringConditions:
                 light, MagicMock(data={"old_state": old_state, "new_state": new_state})
             )
 
-            assert not light._is_overridden, f"[{light_scale}] Override incorrectly triggered at boundary (device={new_brightness_device_native}, ha={new_brightness_ha})"
+            assert light._is_overridden, f"[{light_scale}] Override not triggered at boundary (device={new_brightness_device_native}, ha={new_brightness_ha})"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1369,7 +1515,7 @@ class TestOverrideTriggeringConditions:
                 light, MagicMock(data={"old_state": old_state, "new_state": new_state})
             )
 
-            assert not light._is_overridden, f"[{light_scale}] Override incorrectly triggered just above boundary (device={new_brightness_device_native}, ha={new_brightness_ha})"
+            assert light._is_overridden, f"[{light_scale}] Override not triggered just above boundary (device={new_brightness_device_native}, ha={new_brightness_ha})"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1765,7 +1911,7 @@ class TestOverrideTriggeringConditions:
                 light, MagicMock(data={"old_state": old_state, "new_state": new_state})
             )
 
-            assert not light._is_overridden, f"[{light_scale}] Override incorrectly triggered at boundary (device={new_brightness_device_native}, ha={new_brightness_ha})"
+            assert light._is_overridden, f"[{light_scale}] Override not triggered at boundary (device={new_brightness_device_native}, ha={new_brightness_ha})"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1857,7 +2003,7 @@ class TestOverrideTriggeringConditions:
                 light, MagicMock(data={"old_state": old_state, "new_state": new_state})
             )
 
-            assert not light._is_overridden, f"[{light_scale}] Override incorrectly triggered just below boundary (device={new_brightness_device_native}, ha={new_brightness_ha})"
+            assert light._is_overridden, f"[{light_scale}] Override not triggered just below boundary (device={new_brightness_device_native}, ha={new_brightness_ha})"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

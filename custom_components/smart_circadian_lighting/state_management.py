@@ -242,20 +242,20 @@ async def _check_for_manual_override(
     # Check brightness override
     if new_brightness is not None and old_brightness is not None and light._brightness is not None:
         brightness_diff = new_brightness - old_brightness
+        max_error = light.max_quantization_error
 
         # An override is triggered if the user adjusts against the transition's direction
-        # AND the new brightness level crosses the circadian setpoint by the threshold.
-        # Account for quantization error with a tolerance of 3.
-        quantization_error = 3
+        # AND the new brightness level crosses the circadian setpoint by the threshold,
+        # accounting for quantization error.
         if is_morning and brightness_diff < 0:  # Dimming during morning transition
-            boundary = light._brightness - light._manual_override_threshold + quantization_error
-            _LOGGER.debug(f"Morning brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, diff={brightness_diff}")
-            if new_brightness < boundary:
+            boundary = light._brightness - light._manual_override_threshold
+            _LOGGER.debug(f"Morning brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, max_error={max_error}, diff={brightness_diff}")
+            if new_brightness < boundary + max_error:
                 brightness_override = True
         elif not is_morning and brightness_diff > 0:  # Brightening during evening transition
-            boundary = light._brightness + light._manual_override_threshold - quantization_error
-            _LOGGER.debug(f"Evening brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, diff={brightness_diff}")
-            if new_brightness > boundary:
+            boundary = light._brightness + light._manual_override_threshold
+            _LOGGER.debug(f"Evening brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, max_error={max_error}, diff={brightness_diff}")
+            if new_brightness >= boundary - max_error:
                 brightness_override = True
 
         # Optimistic update filtering:
@@ -296,6 +296,9 @@ async def _check_for_manual_override(
 
 async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None:
     """Handle state changes of the underlying entity."""
+    if event is None or not hasattr(event, 'data') or event.data is None:
+        return
+
     now = dt_util.utcnow()
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")
