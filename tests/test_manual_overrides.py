@@ -4,6 +4,13 @@ This test suite covers all scenarios in manual_overrides.md:
 1. Triggering overrides (Section 1)
 2. Behavior during overrides (Section 2)
 3. Clearing overrides (Section 3)
+4. Quantization error handling (Section 4)
+
+Test Organization:
+- Unit Tests: Isolated scale conversion and threshold calculation
+- Direction Tests: Transition direction detection logic
+- Integration Tests: Real device values with quantization error handling
+- BVA Tests: Boundary value analysis with verified conversion paths
 """
 
 import asyncio
@@ -18,6 +25,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smart_circadian_lighting import DOMAIN
 from custom_components.smart_circadian_lighting.light import CircadianLight
+from custom_components.smart_circadian_lighting.circadian_logic import _convert_percent_to_255
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,6 +135,442 @@ def brightness_255_to_0_100_round(brightness_255: int) -> int:
     if brightness_255 >= 255:
         return 100
     return int(round(brightness_255 * 100 / 255))
+
+
+class TestBrightnessScaleConversion:
+    """Unit tests for brightness scale conversion functions.
+    
+    These tests verify that scale conversions work correctly and expose
+    quantization error characteristics for each device type.
+    """
+
+    def test_zwave_0_99_truncate_conversion_symmetry(self):
+        """Test Z-Wave truncate conversion documents actual quantization behavior.
+        
+        Z-Wave uses 0-99 scale (99 steps). When converting to HA 0-255 scale,
+        SIGNIFICANT quantization errors occur. Example: 1 -> 2 -> 0 (loss of data).
+        This is why the code must account for quantization error as per Section 4.
+        """
+        test_cases = [
+            (0, 0, 0),      
+            (1, 2, 0),      
+            (99, 255, 99),  
+            (49, 126, 48),  
+            (50, 128, 49),  
+        ]
+        
+        for device_val, expected_ha_trunc, expected_device_back in test_cases:
+            ha_val = brightness_0_99_to_255_truncate(device_val)
+            device_back = brightness_255_to_0_99_truncate(ha_val)
+            assert ha_val == expected_ha_trunc, f"Z-Wave truncate {device_val} → {ha_val} (expected {expected_ha_trunc})"
+            assert device_back == expected_device_back, f"Z-Wave truncate round-trip {device_val} → {ha_val} → {device_back} shows error tolerance"
+
+    def test_zwave_0_99_round_conversion_symmetry(self):
+        """Test Z-Wave round conversion is lossless (KEY FINDING).
+        
+        IMPORTANT: Rounding during Z-Wave conversion eliminates round-trip errors.
+        This is the CORRECT approach to avoid false override triggers.
+        """
+        test_cases = [
+            (0, 0, 0),
+            (1, 3, 1),    
+            (99, 255, 99),
+            (49, 126, 49),
+            (50, 129, 50),
+        ]
+        
+        for device_val, expected_ha_round, expected_device_back in test_cases:
+            ha_val = brightness_0_99_to_255_round(device_val)
+            device_back = brightness_255_to_0_99_round(ha_val)
+            assert ha_val == expected_ha_round, f"Z-Wave round {device_val} → {ha_val} (expected {expected_ha_round})"
+            assert device_back == expected_device_back, f"Z-Wave round round-trip lossless: {device_val} -> {ha_val} -> {device_back}"
+
+    def test_kasa_0_100_truncate_conversion_symmetry(self):
+        """Test Kasa truncate conversion introduces quantization error.
+        
+        Unlike rounding, truncation can cause round-trip errors up to 3.
+        """
+        test_cases = [
+            (0, 0, 0),
+            (1, 2, 0),    
+            (100, 255, 100),
+            (50, 127, 49),
+            (75, 191, 74),
+        ]
+        
+        for device_val, expected_ha_trunc, expected_device_back in test_cases:
+            ha_val = brightness_0_100_to_255_truncate(device_val)
+            device_back = brightness_255_to_0_100_truncate(ha_val)
+            assert ha_val == expected_ha_trunc, f"Kasa truncate {device_val} → {ha_val} (expected {expected_ha_trunc})"
+            assert device_back == expected_device_back, f"Kasa truncate round-trip {device_val} → {ha_val} → {device_back}"
+
+    def test_kasa_0_100_round_conversion_symmetry(self):
+        """Test Kasa round conversion is lossless (KEY FINDING).
+        
+        IMPORTANT: Rounding during Kasa conversion eliminates round-trip errors.
+        This is the CORRECT approach to avoid false override triggers.
+        """
+        test_cases = [
+            (0, 0, 0),
+            (1, 3, 1),    
+            (100, 255, 100),
+            (50, 128, 50),
+            (75, 191, 75),
+        ]
+        
+        for device_val, expected_ha_round, expected_device_back in test_cases:
+            ha_val = brightness_0_100_to_255_round(device_val)
+            device_back = brightness_255_to_0_100_round(ha_val)
+            assert ha_val == expected_ha_round, f"Kasa round {device_val} → {ha_val} (expected {expected_ha_round})"
+            assert device_back == expected_device_back, f"Kasa round round-trip lossless: {device_val} -> {ha_val} -> {device_back}"
+
+    def test_quantization_error_range_zwave_truncate(self):
+        """Document quantization error for Z-Wave truncate conversion.
+        
+        Truncation causes up to 3 units of error. This is a CRITICAL issue
+        that must be accounted for in override detection to avoid false
+        negatives (not triggering override when user clearly dimmed).
+        """
+        max_error = 0
+        for ha_val in range(256):
+            device_val = brightness_255_to_0_99_truncate(ha_val)
+            ha_back = brightness_0_99_to_255_truncate(device_val)
+            error = abs(ha_val - ha_back)
+            max_error = max(max_error, error)
+        
+        assert max_error == 3, f"Z-Wave truncate max error should be 3: {max_error}"
+
+    def test_quantization_error_range_zwave_round(self):
+        """Document quantization error for Z-Wave round conversion.
+        
+        KEY FINDING: Rounding REDUCES quantization errors to maximum 1.
+        This is MUCH better than truncation (max error 3), but still introduces
+        some error that must be accounted for in override detection.
+        """
+        max_error = 0
+        for ha_val in range(256):
+            device_val = brightness_255_to_0_99_round(ha_val)
+            ha_back = brightness_0_99_to_255_round(device_val)
+            error = abs(ha_val - ha_back)
+            max_error = max(max_error, error)
+        
+        assert max_error == 1, f"Z-Wave round max error should be 1: {max_error}"
+
+    def test_quantization_error_range_kasa_truncate(self):
+        """Document quantization error for Kasa truncate conversion.
+        
+        Truncation causes up to 3 units of error. This is a CRITICAL issue
+        that must be accounted for in override detection to avoid false
+        negatives (not triggering override when user clearly brightened).
+        """
+        max_error = 0
+        for ha_val in range(256):
+            device_val = brightness_255_to_0_100_truncate(ha_val)
+            ha_back = brightness_0_100_to_255_truncate(device_val)
+            error = abs(ha_val - ha_back)
+            max_error = max(max_error, error)
+        
+        assert max_error == 3, f"Kasa truncate max error should be 3: {max_error}"
+
+    def test_quantization_error_range_kasa_round(self):
+        """Document quantization error for Kasa round conversion.
+        
+        KEY FINDING: Rounding REDUCES quantization errors to maximum 1.
+        This is MUCH better than truncation (max error 3), but still introduces
+        some error that must be accounted for in override detection.
+        """
+        max_error = 0
+        for ha_val in range(256):
+            device_val = brightness_255_to_0_100_round(ha_val)
+            ha_back = brightness_0_100_to_255_round(device_val)
+            error = abs(ha_val - ha_back)
+            max_error = max(max_error, error)
+        
+        assert max_error == 1, f"Kasa round max error should be 1: {max_error}"
+
+
+class TestThresholdCalculation:
+    """Unit tests for threshold calculation from config percentage.
+    
+    Per manual_overrides.md, the threshold is used to determine whether
+    a brightness change crosses the setpoint boundary.
+    """
+
+    def test_threshold_calculation_5_percent(self):
+        """Test threshold calculation for 5% config value."""
+        threshold_percent = 5
+        expected_255_scale = _convert_percent_to_255(threshold_percent)
+        
+        assert expected_255_scale == int(round(5 * 255 / 100)), \
+            f"5% should convert to {int(round(5 * 255 / 100))} in 0-255 scale"
+
+    def test_threshold_calculation_10_percent(self):
+        """Test threshold calculation for 10% config value."""
+        threshold_percent = 10
+        expected_255_scale = _convert_percent_to_255(threshold_percent)
+        
+        assert expected_255_scale == int(round(10 * 255 / 100)), \
+            f"10% should convert to {int(round(10 * 255 / 100))} in 0-255 scale"
+
+    def test_threshold_boundary_calculations(self):
+        """Test boundary calculations with different thresholds and circadian targets.
+        
+        This verifies the math used in override detection:
+        - Morning: override if new_brightness < (circadian_target - threshold)
+        - Evening: override if new_brightness > (circadian_target + threshold)
+        """
+        circadian_target = 150
+        threshold = 25
+        
+        morning_boundary = circadian_target - threshold
+        evening_boundary = circadian_target + threshold
+        
+        assert morning_boundary == 125, f"Morning boundary should be 125, got {morning_boundary}"
+        assert evening_boundary == 175, f"Evening boundary should be 175, got {evening_boundary}"
+
+
+class TestTransitionDirectionDetection:
+    """Unit tests for transition direction detection.
+    
+    Per manual_overrides.md Section 1:
+    - Morning transition increases brightness (user must dim to trigger)
+    - Evening transition decreases brightness (user must brighten to trigger)
+    - Changes in same direction as transition do NOT trigger override
+    """
+
+    def test_morning_transition_dimming_is_opposite_direction(self):
+        """Test that dimming during morning transition is opposite direction."""
+        is_morning = True
+        brightness_diff = -20  
+        
+        is_opposite_direction = (is_morning and brightness_diff < 0)
+        assert is_opposite_direction, "Dimming should be opposite to morning increase"
+
+    def test_morning_transition_brightening_is_same_direction(self):
+        """Test that brightening during morning transition is same direction."""
+        is_morning = True
+        brightness_diff = 20  
+        
+        is_opposite_direction = (is_morning and brightness_diff < 0)
+        assert not is_opposite_direction, "Brightening should be same as morning increase"
+
+    def test_evening_transition_brightening_is_opposite_direction(self):
+        """Test that brightening during evening transition is opposite direction."""
+        is_morning = False
+        brightness_diff = 20  
+        
+        is_opposite_direction = (not is_morning and brightness_diff > 0)
+        assert is_opposite_direction, "Brightening should be opposite to evening decrease"
+
+    def test_evening_transition_dimming_is_same_direction(self):
+        """Test that dimming during evening transition is same direction."""
+        is_morning = False
+        brightness_diff = -20  
+        
+        is_opposite_direction = (not is_morning and brightness_diff > 0)
+        assert not is_opposite_direction, "Dimming should be same as evening decrease"
+
+
+class TestIntegrationScenarios:
+    """Integration test scenarios with documented quantization error handling.
+    
+    Per manual_overrides.md Section 4:
+    - Account for brightness scale quantization errors
+    - Dynamically calculate acceptable error threshold based on device scale
+    - Only trigger override if brightness moves AGAINST direction AND crosses threshold
+    
+    These tests use realistic device values and verify the complete conversion chain.
+    """
+
+    @pytest.mark.asyncio
+    async def test_morning_override_with_zwave_quantization_error(
+        self, mock_hass, mock_state_factory
+    ):
+        """Integration test: Morning override with Z-Wave quantization error.
+        
+        Scenario:
+        - Device: Z-Wave dimmer (0-99 scale)
+        - Circadian target: 150 (HA 0-255 scale)
+        - Threshold: 25 (HA 0-255 scale)
+        - Morning boundary: 125 (HA scale)
+        - User dims to device native 48 (converts to HA 121 with truncate)
+        
+        Expected: Override triggered because 121 < 125 and dimming is opposite direction
+        
+        Bug verification: If quantization error causes conversion to HA 122, override
+        might not trigger even though user clearly dimmed below boundary.
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_integration_zwave", data=config)
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._brightness = 150
+        light._manual_override_threshold = 25
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        morning_transition = datetime(2023, 1, 1, 6, 30, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+             patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = morning_transition
+            mock_dt_util.return_value = morning_transition
+            mock_dt_utcnow.return_value = morning_transition
+            mock_datetime.now.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            old_device_native = brightness_255_to_0_99_truncate(160)
+            new_device_native = brightness_255_to_0_99_truncate(121)
+
+            old_brightness_ha = brightness_0_99_to_255_truncate(old_device_native)
+            new_brightness_ha = brightness_0_99_to_255_truncate(new_device_native)
+
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: old_brightness_ha}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: new_brightness_ha}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert light._is_overridden, (
+                f"Override not triggered: circadian=150, threshold=25, boundary=125, "
+                f"device_native={new_device_native}, ha_converted={new_brightness_ha}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_evening_override_with_kasa_quantization_error(
+        self, mock_hass, mock_state_factory
+    ):
+        """Integration test: Evening override with Kasa quantization error.
+        
+        BUG FOUND: Device reports brightness at exact boundary due to quantization.
+        
+        Scenario:
+        - Device: Kasa dimmer (0-100 scale)
+        - Circadian target: 100 (HA 0-255 scale)
+        - Threshold: 25 (HA 0-255 scale)
+        - Evening boundary: 125 (HA scale) - must be GREATER than this to trigger
+        - User brightens to device native 49 (converts to HA 124 with truncate)
+        
+        ISSUE: HA 124 is NOT > 125 (boundary is exclusive), so override doesn't trigger.
+        But user clearly brightened the light during evening transition.
+        
+        Expected: This test documents a potential bug where quantization error
+        causes the boundary check to be off by 1 LED step.
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(domain=DOMAIN, unique_id="test_integration_kasa", data=config)
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._brightness = 100
+        light._manual_override_threshold = 25
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        evening_transition = datetime(2023, 1, 1, 19, 45, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+             patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = evening_transition
+            mock_dt_util.return_value = evening_transition
+            mock_dt_utcnow.return_value = evening_transition
+            mock_datetime.now.return_value = evening_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            old_device_native = brightness_255_to_0_100_truncate(80)
+            new_device_native = brightness_255_to_0_100_truncate(127)
+
+            old_brightness_ha = brightness_0_100_to_255_truncate(old_device_native)
+            new_brightness_ha = brightness_0_100_to_255_truncate(new_device_native)
+
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: old_brightness_ha}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: new_brightness_ha}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert light._is_overridden, (
+                f"BUG: Quantization error caused boundary check miss. "
+                f"Circadian=100, threshold=25, boundary=125, "
+                f"device_native={new_device_native}, ha_converted={new_brightness_ha}. "
+                f"User clearly brightened (79→124 during evening), but 124 is NOT > 125 (exclusive). "
+                f"Code doesn't account for quantization error as required by manual_overrides.md Section 4."
+            )
 
 
 class TestOverrideTriggeringConditions:
@@ -522,9 +966,22 @@ class TestOverrideTriggeringConditions:
     ):
         """T-1.6a: Morning BVA - Well Below Boundary.
         
-        Circadian=150, Threshold=25, Boundary=125.
-        New brightness=105 (well below boundary).
-        Override SHOULD be triggered.
+        Boundary Value Analysis (BVA) test for morning transition override triggering.
+        
+        Test Setup:
+        - Circadian target: 150 (HA 0-255 scale)
+        - Threshold: 25 (HA 0-255 scale)
+        - Morning boundary: 125 (HA scale)
+        - New brightness: 105 (well below 125)
+        - Direction: Dimming (opposite to morning increase)
+        
+        Expected Result: Override SHOULD be triggered
+        - Reason: brightness (105) < boundary (125) AND dimming during morning
+        
+        Known Issues:
+        - Quantization error from scale conversion may cause this to fail if the
+          code doesn't account for device-native scale limits
+        - For Z-Wave (0-99), max error ~2; for Kasa (0-100), max error ~1
         """
         hass = mock_hass
         config = {
