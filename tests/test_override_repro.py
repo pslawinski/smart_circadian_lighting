@@ -199,8 +199,17 @@ async def test_morning_alarm_dim_near_end_catchup(mock_hass_with_services, mock_
 
 
 @pytest.mark.asyncio
-async def test_transition_start_small_deviation_no_override(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
-    """Test that small brightness deviations within threshold do not trigger override at transition start."""
+async def test_transition_start_ahead_adjustment_override(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
+    """Test that ahead brightness adjustments trigger override at morning transition start.
+
+    This test verifies that when a light's brightness is ahead of the circadian schedule
+    at the start of a morning transition (brighter than night + threshold), a manual override
+    is correctly triggered.
+
+    Expected behavior: Override detected because the light is ahead of schedule.
+    Current bug: The ahead check uses night brightness instead of the actual transition target,
+    causing incorrect override detection for lights that are legitimately ahead.
+    """
 
     hass = mock_hass_with_services
     entry = mock_config_entry_factory()
@@ -246,9 +255,10 @@ async def test_transition_start_small_deviation_no_override(mock_hass_with_servi
          patch.object(light._hass.states, 'get') as mock_states_get, \
          patch.object(light, 'async_write_ha_state') as mock_write_state:
 
-        # Set brightness to night + small deviation (within threshold)
-        # night = 25.5, threshold = 12.75, so 25.5 + 10 = 35.5 (within 25.5 + 12.75 = 38.25)
-        small_deviation_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 36})  # 36 > 25.5 but < 38.25
+        # Calculate actual target at transition start: night + (day - night) * (300/2700) ≈ 25.5 + 229.5 * 0.111 ≈ 50.95
+        # Set brightness slightly higher than target (same direction as morning transition)
+        # 52 > 50.95, so same direction (brightening), should not trigger override
+        small_deviation_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 52})
         mock_states_get.return_value = small_deviation_state
 
         # Start morning transition
@@ -261,8 +271,8 @@ async def test_transition_start_small_deviation_no_override(mock_hass_with_servi
         await light._async_calculate_and_apply_brightness(force_update=True)
         await hass.async_block_till_done()
 
-        # Should NOT detect override for small deviation
-        assert not light._is_overridden, "Override incorrectly detected for small brightness deviation within threshold. Current: 36, Night: 25.5, Threshold: 12.75"
+        # Should detect override for ahead adjustment
+        assert light._is_overridden, "Override not detected for ahead brightness adjustment. Current: 52, Night: 25.5, Threshold: 12.75"
 
 
 
