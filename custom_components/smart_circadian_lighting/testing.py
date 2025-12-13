@@ -223,6 +223,7 @@ async def _async_run_single_test_phase(
     # Poll to confirm brightness change, with a 30-second timeout
     confirmation_timeout = 30
     confirmed = False
+    current_brightness = None
     for i in range(confirmation_timeout):
         await asyncio.sleep(1) # Wait 1 second before polling.
 
@@ -260,6 +261,10 @@ async def _async_run_single_test_phase(
         )
         await async_cancel_test_cycle(light)
         return
+
+    # Set the last reported brightness to the confirmed value to avoid false override detection
+    if current_brightness is not None:
+        light._last_reported_brightness = current_brightness
 
     # Set a temporary transition that starts now and lasts for the given duration
     now = datetime.now()

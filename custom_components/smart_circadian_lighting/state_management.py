@@ -245,11 +245,17 @@ async def _check_for_manual_override(
 
         # An override is triggered if the user adjusts against the transition's direction
         # AND the new brightness level crosses the circadian setpoint by the threshold.
+        # Account for quantization error with a tolerance of 3.
+        quantization_error = 3
         if is_morning and brightness_diff < 0:  # Dimming during morning transition
-            if new_brightness < (light._brightness - light._manual_override_threshold):
+            boundary = light._brightness - light._manual_override_threshold + quantization_error
+            _LOGGER.debug(f"Morning brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, diff={brightness_diff}")
+            if new_brightness < boundary:
                 brightness_override = True
         elif not is_morning and brightness_diff > 0:  # Brightening during evening transition
-            if new_brightness > (light._brightness + light._manual_override_threshold):
+            boundary = light._brightness + light._manual_override_threshold - quantization_error
+            _LOGGER.debug(f"Evening brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, diff={brightness_diff}")
+            if new_brightness > boundary:
                 brightness_override = True
 
         # Optimistic update filtering:
