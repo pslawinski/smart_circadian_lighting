@@ -389,6 +389,7 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
+        self.config_entry = config_entry
         self.temp_config = {**config_entry.data, **config_entry.options}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
@@ -439,8 +440,8 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
                 self.temp_config["evening_end_brightness"] = self.temp_config[CONF_NIGHT_BRIGHTNESS]
                 self.temp_config["morning_end_brightness"] = self.temp_config[CONF_DAY_BRIGHTNESS]
                 self.temp_config["evening_start_brightness"] = self.temp_config[CONF_DAY_BRIGHTNESS]
-                _LOGGER.debug(f"Options creating entry with config: {self.temp_config}")
-                return self.async_create_entry(title="", data=self.temp_config)
+                _LOGGER.debug(f"Options updating entry with config: {self.temp_config}")
+                return self.async_abort_entry_with_options(self.temp_config)
 
             # Ensure defaults are set
             self.temp_config.setdefault("sunrise_sunset_color_temp_kelvin", DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN)
