@@ -418,6 +418,218 @@ class TestIntegrationScenarios:
     These tests use realistic device values and verify the complete conversion chain.
     """
 
+    @pytest.mark.asyncio
+    async def test_soft_override_evening_pre_adjusted_prevents_brightness_jump(
+        self, mock_hass, mock_state_factory
+    ):
+        """Integration test: Soft override respects user's pre-dimmed brightness during evening transition.
+        
+        Per manual_overrides.md Section 1: When a user adjusts brightness in the direction of
+        a transition before the transition starts, the system applies a soft override. This
+        acknowledges the user's intentional adjustment and holds the light at that level until
+        the circadian target naturally "catches up," preventing unwanted brightness adjustments.
+        
+        Scenario:
+        - User pre-dims light to 64 (~25%) before evening transition starts at 19:30
+        - Circadian target at transition start: 255 (full day brightness)
+        - Evening transition is configured to decrease brightness from 100% to 10% over time
+        
+        Expected Behavior:
+        1. State change detected when user dims from 255→64
+        2. Soft override is triggered (user adjustment is in direction of evening transition)
+        3. Light enters override state (prevents further system brightness updates)
+        4. Light brightness remains at 64 until circadian calculation naturally reaches that level
+        5. Once circadian target reaches 64 during evening transition, override is cleared
+        
+        This test ensures that users can dim lights ahead of the evening transition
+        without the system fighting their adjustment or jumping brightness unexpectedly.
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id="test_soft_override_evening_prevents_jump",
+            data=config
+        )
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._brightness = _convert_percent_to_255(100)
+        light._manual_override_threshold = _convert_percent_to_255(10)
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        evening_transition_start = datetime(2023, 1, 1, 19, 30, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+             patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = evening_transition_start
+            mock_dt_util.return_value = evening_transition_start
+            mock_dt_utcnow.return_value = evening_transition_start
+            mock_datetime.now.return_value = evening_transition_start
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            user_pre_dimmed_brightness = 64
+
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 255}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: user_pre_dimmed_brightness}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert light._is_overridden, (
+                f"Soft override should be triggered when user dims before evening transition starts. "
+                f"Got _is_overridden={light._is_overridden}"
+            )
+
+            assert light._brightness == user_pre_dimmed_brightness, (
+                f"Light brightness should remain at user's intentional pre-set value ({user_pre_dimmed_brightness}) "
+                f"and not be adjusted by the system during soft override. "
+                f"Got {light._brightness}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_soft_override_morning_pre_adjusted_prevents_brightness_jump(
+        self, mock_hass, mock_state_factory
+    ):
+        """Integration test: Soft override respects user's pre-brightened brightness during morning transition.
+        
+        Per manual_overrides.md Section 1: When a user adjusts brightness in the direction of
+        a transition before the transition starts, the system applies a soft override. This
+        acknowledges the user's intentional adjustment and holds the light at that level until
+        the circadian target naturally "catches up," preventing unwanted brightness adjustments.
+        
+        Scenario:
+        - User pre-brightens light to 204 (~80%) before morning transition starts at 06:00
+        - Circadian target at transition start: 26 (night brightness, ~10%)
+        - Morning transition is configured to increase brightness from 10% to 100% over time
+        
+        Expected Behavior:
+        1. State change detected when user brightens from 26→204
+        2. Soft override is triggered (user adjustment is in direction of morning transition)
+        3. Light enters override state (prevents further system brightness updates)
+        4. Light brightness remains at 204 until circadian calculation naturally reaches that level
+        5. Once circadian target reaches 204 during morning transition, override is cleared
+        
+        This test ensures that users can brighten lights ahead of the morning transition
+        without the system fighting their adjustment or dimming unexpectedly.
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id="test_soft_override_morning_prevents_jump",
+            data=config
+        )
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._brightness = _convert_percent_to_255(10)
+        light._manual_override_threshold = _convert_percent_to_255(10)
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        morning_transition_start = datetime(2023, 1, 1, 6, 0, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+             patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = morning_transition_start
+            mock_dt_util.return_value = morning_transition_start
+            mock_dt_utcnow.return_value = morning_transition_start
+            mock_datetime.now.return_value = morning_transition_start
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            user_pre_brightened_brightness = 204
+
+            old_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 26}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: user_pre_brightened_brightness}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert light._is_overridden, (
+                f"Soft override should be triggered when user brightens before morning transition starts. "
+                f"Got _is_overridden={light._is_overridden}"
+            )
+
+            assert light._brightness == user_pre_brightened_brightness, (
+                f"Light brightness should remain at user's intentional pre-set value ({user_pre_brightened_brightness}) "
+                f"and not be adjusted by the system during soft override. "
+                f"Got {light._brightness}"
+            )
+
 
 class TestColorTempIntegrationScenarios:
     """Integration test scenarios for color temperature override detection.

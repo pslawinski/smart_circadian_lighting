@@ -237,6 +237,7 @@ async def _check_for_manual_override(
     )
 
     brightness_override = False
+    is_soft_override = False
     color_temp_override = False
 
     # Check brightness override
@@ -257,12 +258,43 @@ async def _check_for_manual_override(
             _LOGGER.debug(f"Evening brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, max_error={max_error}, diff={brightness_diff}")
             if new_brightness >= boundary - max_error:
                 brightness_override = True
+        # Soft override detection: user adjusts in the same direction as the transition at transition start
+        elif not brightness_override and new_brightness is not None and old_brightness is not None:
+            # Check if we're at the transition start by calculating progress
+            morning_start_time, morning_end_time = circadian_logic.get_transition_times(
+                "morning", light._temp_transition_override, light._config
+            )
+            evening_start_time, evening_end_time = circadian_logic.get_transition_times(
+                "evening", light._temp_transition_override, light._config
+            )
+
+            current_time = now.time()
+
+            if is_morning:
+                progress = circadian_logic.get_progress(current_time, morning_start_time, morning_end_time)
+                # Soft override: brightening at transition start (adjusting in direction of transition)
+                if brightness_diff > 0 and progress < 0.01:  # Within first 1% of transition duration
+                    # Check if the adjustment is substantial (crosses threshold)
+                    if new_brightness > old_brightness + light._manual_override_threshold:
+                        brightness_override = True
+                        is_soft_override = True
+                        _LOGGER.debug(f"Morning soft override check: new={new_brightness}, old={old_brightness}, progress={progress}, diff={brightness_diff}, threshold={light._manual_override_threshold}")
+            else:
+                progress = circadian_logic.get_progress(current_time, evening_start_time, evening_end_time)
+                # Soft override: dimming at transition start (adjusting in direction of transition)
+                if brightness_diff < 0 and progress < 0.01:  # Within first 1% of transition duration
+                    # Check if the adjustment is substantial (crosses threshold)
+                    if new_brightness < old_brightness - light._manual_override_threshold:
+                        brightness_override = True
+                        is_soft_override = True
+                        _LOGGER.debug(f"Evening soft override check: new={new_brightness}, old={old_brightness}, progress={progress}, diff={brightness_diff}, threshold={light._manual_override_threshold}")
 
         # Optimistic update filtering:
         # If the old_brightness is very close to our last-set target brightness,
         # it's likely this isn't a manual override, but a correction from
         # an optimistic state report from the light.
-        if brightness_override and abs(old_brightness - light._brightness) <= 5:
+        # Skip this filtering for soft overrides, as they are intentional user adjustments.
+        if brightness_override and not is_soft_override and abs(old_brightness - light._brightness) <= 5:
             brightness_override = False
 
     # Check color temperature override
@@ -281,6 +313,9 @@ async def _check_for_manual_override(
             f"exceeding setpoint {light._brightness} by threshold."
         )
         light._is_overridden = True
+        # Update the brightness to the user's manually set value for soft overrides
+        if new_brightness is not None:
+            light._brightness = new_brightness
         await async_save_override_state(light)
         light._event_throttle_time = now + timedelta(seconds=5)
     elif color_temp_override:
