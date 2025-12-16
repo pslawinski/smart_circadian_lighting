@@ -133,3 +133,4 @@ Thumbs.db
 config/
 storage/
 deps/
+.zencoder/rules/repo.md
