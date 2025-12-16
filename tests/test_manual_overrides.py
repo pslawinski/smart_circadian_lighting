@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN
-from homeassistant.const import STATE_ON
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smart_circadian_lighting import DOMAIN
@@ -3021,6 +3021,330 @@ class TestManualOverrideClearance:
             assert (
                 light._override_timestamp is None
             ), "Override timestamp not cleared"
+
+
+class TestSection4OfflineScenarios:
+    """Comprehensive tests for Section 4: Offline Lights and Quantization Error.
+    
+    Per manual_overrides.md Section 4:
+    - Scenario 1: Brightness Matches Last Command (within error threshold)
+    - Scenario 2: Adjusted In Direction of Transition (Soft Adjustment)
+    - Scenario 3: Adjusted Against Direction of Transition (Override Triggered)
+    
+    These tests verify that when a light reconnects during a transition, the system
+    correctly handles quantization error and doesn't falsely trigger overrides for
+    legitimate hardware progression within transitions.
+    """
+
+    @pytest.mark.asyncio
+    async def test_section_4_scenario_1_brightness_matches_last_command_morning(
+        self, mock_hass, mock_state_factory
+    ):
+        """Section 4, Scenario 1: Light offline, comes back at exact last command brightness.
+        
+        Setup:
+        - Morning transition active, circadian target = 150
+        - Light went offline when system commanded 150
+        - Light comes back online reporting 150 (matches last command)
+        
+        Expected:
+        - Override status remains unchanged (not triggered)
+        - No spurious override detected
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id="test_sec4_s1_morning",
+            data=config
+        )
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._brightness = 150
+        light._last_reported_brightness = 150
+        light._manual_override_threshold = _convert_percent_to_255(10)
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        morning_transition = datetime(2023, 1, 1, 6, 30, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+             patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = morning_transition
+            mock_dt_util.return_value = morning_transition
+            mock_dt_utcnow.return_value = morning_transition
+            mock_datetime.now.return_value = morning_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            old_state = mock_state_factory(
+                "light.test_light", "unavailable", {}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 150}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert not light._is_overridden, (
+                f"Override should NOT be triggered when light comes back at exact last command brightness. "
+                f"Expected: not overridden, Got: {light._is_overridden}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_section_4_scenario_2_adjusted_in_direction_soft_adjustment_evening(
+        self, mock_hass, mock_state_factory
+    ):
+        """Section 4, Scenario 2: Light offline during evening, comes back dimmer (same direction).
+        
+        Setup:
+        - Evening transition active, circadian target = 179 (decreasing)
+        - Light went offline, last command was 179
+        - Light comes back online reporting 160 (dimmer, same direction as transition)
+        - Difference: 19 points (within expected range)
+        
+        Expected:
+        - Override NOT triggered (light is moving in correct direction)
+        - This is treated as "soft" adjustment
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": 10,
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id="test_sec4_s2_evening",
+            data=config
+        )
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._brightness = 179
+        light._last_reported_brightness = 179
+        light._manual_override_threshold = _convert_percent_to_255(10)
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        evening_transition = datetime(2023, 1, 1, 19, 45, 0)
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+             patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = evening_transition
+            mock_dt_util.return_value = evening_transition
+            mock_dt_utcnow.return_value = evening_transition
+            mock_datetime.now.return_value = evening_transition
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            old_state = mock_state_factory(
+                "light.test_light", "unavailable", {}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 160}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            assert not light._is_overridden, (
+                f"Override should NOT be triggered for soft adjustment in direction of transition. "
+                f"Light adjusted from 179 to 160 during evening transition (correct direction). "
+                f"Expected: not overridden, Got: {light._is_overridden}"
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "transition_type,transition_time,circadian_target,last_command_brightness,reported_brightness,threshold,should_trigger_override",
+        [
+            ("morning", datetime(2023, 1, 1, 6, 30, 0), 150, 150, 100, 10, True),
+            ("morning", datetime(2023, 1, 1, 6, 30, 0), 150, 150, 120, 10, True),
+            ("morning", datetime(2023, 1, 1, 6, 30, 0), 150, 150, 143, 10, False),
+            ("morning", datetime(2023, 1, 1, 6, 30, 0), 150, 150, 144, 10, False),
+            ("morning", datetime(2023, 1, 1, 6, 30, 0), 150, 150, 142, 10, True),
+            ("evening", datetime(2023, 1, 1, 19, 45, 0), 100, 100, 150, 10, True),
+            ("evening", datetime(2023, 1, 1, 19, 45, 0), 100, 100, 120, 10, True),
+            ("evening", datetime(2023, 1, 1, 19, 45, 0), 100, 100, 106, 10, False),
+            ("evening", datetime(2023, 1, 1, 19, 45, 0), 100, 100, 105, 10, False),
+            ("evening", datetime(2023, 1, 1, 19, 45, 0), 100, 100, 107, 10, True),
+        ],
+        ids=[
+            "morning_well_below_threshold",
+            "morning_well_above_threshold",
+            "morning_just_above_boundary_with_error",
+            "morning_far_above_boundary_with_error",
+            "morning_just_below_boundary_with_error",
+            "evening_well_above_threshold",
+            "evening_well_below_threshold",
+            "evening_just_above_boundary_with_error",
+            "evening_far_above_boundary_with_error",
+            "evening_just_below_boundary_with_error",
+        ],
+    )
+    async def test_section_4_scenario_3_offline_override_detection(
+        self,
+        mock_hass,
+        mock_state_factory,
+        transition_type,
+        transition_time,
+        circadian_target,
+        last_command_brightness,
+        reported_brightness,
+        threshold,
+        should_trigger_override,
+    ):
+        """Section 4, Scenario 3: Override detection when light reconnects with against-direction adjustment.
+        
+        Tests offline override detection with:
+        - Both morning and evening transitions
+        - Boundary conditions (at, just above, just below, well beyond threshold)
+        - Various brightness values
+        
+        Setup:
+        - Light goes offline during transition
+        - Light was at last_command_brightness when it went offline
+        - Light comes back online reporting reported_brightness (against transition direction)
+        - Threshold is configured to detect significant adjustments
+        
+        Expected:
+        - Override is triggered if reported_brightness crosses the threshold boundary
+        - Override is NOT triggered if within quantization error margin
+        """
+        hass = mock_hass
+        config = {
+            "lights": ["light.test_light"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "07:00:00",
+            "evening_start_time": "19:30:00",
+            "evening_end_time": "20:30:00",
+            "manual_override_threshold": threshold,
+            "color_temp_enabled": False,
+            "morning_override_clear_time": "08:00:00",
+            "evening_override_clear_time": "02:00:00",
+        }
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=f"test_sec4_s3_{transition_type}_{circadian_target}_{reported_brightness}",
+            data=config,
+        )
+        entry.add_to_hass(hass)
+
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value=None)
+        mock_store.async_save = AsyncMock()
+
+        light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+        light._first_update_done = True
+        light._brightness = circadian_target
+        light._last_reported_brightness = last_command_brightness
+        light._manual_override_threshold = threshold
+
+        hass.data[DOMAIN] = {
+            entry.entry_id: {
+                "config": config,
+                "circadian_lights": [light],
+                "manual_overrides_enabled": True,
+            }
+        }
+
+        with patch("homeassistant.util.dt.now") as mock_now, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.now") as mock_dt_util, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow") as mock_dt_utcnow, \
+             patch("custom_components.smart_circadian_lighting.circadian_logic.datetime") as mock_datetime, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_call_later") as mock_call_later, \
+             patch("custom_components.smart_circadian_lighting.state_management.async_dispatcher_send") as mock_dispatcher:
+            mock_now.return_value = transition_time
+            mock_dt_util.return_value = transition_time
+            mock_dt_utcnow.return_value = transition_time
+            mock_datetime.now.return_value = transition_time
+            mock_call_later.return_value = MagicMock()
+            mock_dispatcher.return_value = None
+
+            old_state = mock_state_factory(
+                "light.test_light", STATE_UNAVAILABLE, {}
+            )
+            new_state = mock_state_factory(
+                "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: reported_brightness}
+            )
+
+            from custom_components.smart_circadian_lighting import state_management
+
+            await state_management.handle_entity_state_changed(
+                light, MagicMock(data={"old_state": old_state, "new_state": new_state})
+            )
+
+            direction = "decreased" if transition_type == "morning" else "increased"
+            assert light._is_overridden == should_trigger_override, (
+                f"{transition_type.capitalize()} transition offline override detection failed. "
+                f"Circadian target: {circadian_target}, Last command: {last_command_brightness}, "
+                f"Reported: {reported_brightness}, Threshold: {threshold}. "
+                f"Light {direction} by {abs(reported_brightness - last_command_brightness)} points. "
+                f"Expected override: {should_trigger_override}, Got: {light._is_overridden}"
+            )
 
 
 class TestMultiScaleBrightness:

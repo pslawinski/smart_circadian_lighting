@@ -211,7 +211,8 @@ async def _check_for_manual_override(
     new_brightness: int | None,
     old_color_temp: int | None = None,
     new_color_temp: int | None = None,
-    now: datetime = None
+    now: datetime = None,
+    was_online: bool = True
 ) -> None:
     """Check for a manual brightness or color temperature change that should trigger an override."""
     from . import circadian_logic  # Defer import to avoid circular dependency
@@ -241,7 +242,8 @@ async def _check_for_manual_override(
     color_temp_override = False
 
     # Check brightness override
-    if new_brightness is not None and old_brightness is not None and light._brightness is not None:
+    if (new_brightness is not None and old_brightness is not None and light._brightness is not None and
+        isinstance(new_brightness, int) and isinstance(old_brightness, int)):
         brightness_diff = new_brightness - old_brightness
         max_error = light.max_quantization_error
 
@@ -294,7 +296,9 @@ async def _check_for_manual_override(
         # it's likely this isn't a manual override, but a correction from
         # an optimistic state report from the light.
         # Skip this filtering for soft overrides, as they are intentional user adjustments.
-        if brightness_override and not is_soft_override and abs(old_brightness - light._brightness) <= 5:
+        # Also skip when the light is coming back online (was_online=False), because
+        # we need to detect manual adjustments that may have occurred while offline.
+        if brightness_override and not is_soft_override and was_online and abs(old_brightness - light._brightness) <= 5:
             brightness_override = False
 
     # Check color temperature override
@@ -413,5 +417,4 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
     if light._event_throttle_time and now < light._event_throttle_time:
         return
 
-    if was_online:
-        await _check_for_manual_override(light, old_brightness, new_brightness, old_color_temp, new_color_temp, now)
+    await _check_for_manual_override(light, old_brightness, new_brightness, old_color_temp, new_color_temp, now, was_online)
