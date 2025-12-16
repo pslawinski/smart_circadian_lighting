@@ -386,6 +386,20 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
         f"old_color_temp={old_color_temp}, new_color_temp={new_color_temp}"
     )
 
+    # Hard query the current brightness from the device to ensure we have the most recent value
+    # This prevents false negatives in override detection due to stale cached state
+    if new_brightness is not None:
+        queried_brightness = await light._get_current_brightness_with_refresh()
+        if queried_brightness is not None and isinstance(queried_brightness, int):
+            _LOGGER.debug(
+                f"[{light._light_entity_id}] Refreshed brightness from {new_brightness} to {queried_brightness}"
+            )
+            new_brightness = queried_brightness
+        else:
+            _LOGGER.debug(
+                f"[{light._light_entity_id}] Failed to refresh brightness, using event value: {new_brightness}"
+            )
+
     # Update the last reported brightness for the next event
     if new_brightness is not None:
         light._last_reported_brightness = new_brightness

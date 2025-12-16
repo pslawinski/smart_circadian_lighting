@@ -540,43 +540,44 @@ class CircadianLight(LightEntity):
         is_currently_transition = mode in ["morning_transition", "evening_transition"]
 
         # Check for ahead overrides at transition start
+        override_just_detected = False
         if is_currently_transition and not self._is_overridden:
             # Check if manual overrides are enabled
             if not self._hass.data[DOMAIN][self._entry.entry_id].get("manual_overrides_enabled", True):
                 pass  # Skip override detection
             else:
+                current_brightness = await self._get_current_brightness_with_refresh()
                 light_state = self._hass.states.get(self._light_entity_id)
-                if light_state:
-                    current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
-                    current_color_temp = light_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)
+                current_color_temp = light_state.attributes.get(ATTR_COLOR_TEMP_KELVIN) if light_state else None
 
-                    should_override = False
+                should_override = False
 
-                    if mode == "evening_transition":
-                        # Evening transition: check if ahead (dimmer than day or warmer than day)
-                        if current_brightness is not None and current_brightness < self._day_brightness_255 - self._manual_override_threshold:
-                            should_override = True
-                            _LOGGER.debug(f"[{self._light_entity_id}] Evening transition start: current brightness {current_brightness} < day brightness {self._day_brightness_255} - threshold {self._manual_override_threshold}, marking as overridden")
-                        if (current_color_temp is not None and self._color_temp_schedule and
-                            current_color_temp < self._config.get("day_color_temp_kelvin", 5000) - self._color_temp_manual_override_threshold):
-                            should_override = True
-                            _LOGGER.debug(f"[{self._light_entity_id}] Evening transition start: current color temp {current_color_temp}K < day color temp - threshold, marking as overridden")
+                if mode == "evening_transition":
+                    # Evening transition: check if ahead (dimmer than day or warmer than day)
+                    if current_brightness is not None and current_brightness < self._day_brightness_255 - self._manual_override_threshold:
+                        should_override = True
+                        _LOGGER.debug(f"[{self._light_entity_id}] Evening transition start: current brightness {current_brightness} < day brightness {self._day_brightness_255} - threshold {self._manual_override_threshold}, marking as overridden")
+                    if (current_color_temp is not None and self._color_temp_schedule and
+                        current_color_temp < self._config.get("day_color_temp_kelvin", 5000) - self._color_temp_manual_override_threshold):
+                        should_override = True
+                        _LOGGER.debug(f"[{self._light_entity_id}] Evening transition start: current color temp {current_color_temp}K < day color temp - threshold, marking as overridden")
 
-                    elif mode == "morning_transition":
-                        # Morning transition: check if ahead (brighter than night or cooler than night)
-                        if current_brightness is not None and current_brightness > self._night_brightness_255 + self._manual_override_threshold:
-                            should_override = True
-                            _LOGGER.debug(f"[{self._light_entity_id}] Morning transition start: current brightness {current_brightness} > night brightness {self._night_brightness_255} + threshold {self._manual_override_threshold}, marking as overridden")
-                        if (current_color_temp is not None and self._color_temp_schedule and
-                            current_color_temp > self._config.get("night_color_temp_kelvin", 1800) + self._color_temp_manual_override_threshold):
-                            should_override = True
-                            _LOGGER.debug(f"[{self._light_entity_id}] Morning transition start: current color temp {current_color_temp}K > night color temp + threshold, marking as overridden")
+                elif mode == "morning_transition":
+                    # Morning transition: check if ahead (brighter than night or cooler than night)
+                    if current_brightness is not None and current_brightness > self._night_brightness_255 + self._manual_override_threshold:
+                        should_override = True
+                        _LOGGER.debug(f"[{self._light_entity_id}] Morning transition start: current brightness {current_brightness} > night brightness {self._night_brightness_255} + threshold {self._manual_override_threshold}, marking as overridden")
+                    if (current_color_temp is not None and self._color_temp_schedule and
+                        current_color_temp > self._config.get("night_color_temp_kelvin", 1800) + self._color_temp_manual_override_threshold):
+                        should_override = True
+                        _LOGGER.debug(f"[{self._light_entity_id}] Morning transition start: current color temp {current_color_temp}K > night color temp + threshold, marking as overridden")
 
-                    if should_override:
-                        self._is_overridden = True
-                        self._override_timestamp = now
-                        await state_management.async_save_override_state(self)
-                        _LOGGER.info(f"[{self._light_entity_id}] Detected ahead adjustment at transition start, marked as overridden")
+                if should_override:
+                    self._is_overridden = True
+                    self._override_timestamp = now
+                    await state_management.async_save_override_state(self)
+                    override_just_detected = True
+                    _LOGGER.info(f"[{self._light_entity_id}] Detected ahead adjustment at transition start, marked as overridden")
 
         if is_currently_transition:
             update_interval = MIN_UPDATE_INTERVAL if self._is_testing else TRANSITION_UPDATE_INTERVAL
@@ -646,11 +647,15 @@ class CircadianLight(LightEntity):
                 _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
 
         if self._is_overridden:
-            light_state = self._hass.states.get(self._light_entity_id)
-            if not light_state:
-                _LOGGER.debug(f"[{self._light_entity_id}] Skipping: overridden but no light state.")
+            # Skip override clearing check if override was just detected in this cycle
+            if override_just_detected:
+                _LOGGER.debug(f"[{self._light_entity_id}] Override just detected, skipping clear check until next cycle.")
                 return
-            current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
+
+            current_brightness = await self._get_current_brightness_with_refresh()
+            if current_brightness is None:
+                _LOGGER.debug(f"[{self._light_entity_id}] Skipping: overridden but failed to get current brightness.")
+                return
 
             # Clear override if circadian has caught up to the manual level
             should_clear_override = False
@@ -816,6 +821,31 @@ class CircadianLight(LightEntity):
             )
         except HomeAssistantError as e:
             _LOGGER.error(f"[{self._light_entity_id}] Error requesting entity update for {self.name}: {e}")
+
+    async def _get_current_brightness_with_refresh(self) -> int | None:
+        """Get the current brightness from the light with a single hard refresh.
+
+        This method performs a hard refresh of the entity state to ensure we have
+        the most current brightness value from the device, not just a cached state.
+
+        Returns:
+            Current brightness (0-255) or None if refresh fails or light is unavailable
+        """
+        await self._refresh_entity_state()
+        light_state = self._hass.states.get(self._light_entity_id)
+
+        if light_state and light_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
+            if current_brightness is not None and isinstance(current_brightness, int):
+                _LOGGER.debug(
+                    f"[{self._light_entity_id}] Successfully queried brightness: {current_brightness}"
+                )
+                return current_brightness
+
+        _LOGGER.debug(
+            f"[{self._light_entity_id}] Failed to get current brightness (light unavailable or no brightness attribute)"
+        )
+        return None
 
     def _prepare_service_data(self, brightness: int | None, color_temp: int | None) -> dict[str, any] | None:
         """Prepare the service data for the light update.

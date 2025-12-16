@@ -275,4 +275,135 @@ async def test_transition_start_ahead_adjustment_override(mock_hass_with_service
         assert light._is_overridden, "Override not detected for ahead brightness adjustment. Current: 52, Night: 25.5, Threshold: 12.75"
 
 
+@pytest.mark.parametrize("transition_type,user_brightness,night_brightness_pct,day_brightness_pct,threshold,test_label", [
+    ("morning", 77, 10, 100, 5, "morning_well_above_threshold"),
+    ("morning", 41, 10, 100, 5, "morning_slightly_above_threshold"),
+    ("morning", 40, 10, 100, 5, "morning_at_threshold_boundary"),
+    ("morning", 38, 10, 100, 5, "morning_below_threshold"),
+    ("evening", 64, 10, 100, 5, "evening_well_below_threshold"),
+    ("evening", 191, 10, 100, 5, "evening_slightly_below_threshold"),
+    ("evening", 241, 10, 100, 5, "evening_at_threshold_boundary"),
+    ("evening", 243, 10, 100, 5, "evening_above_threshold"),
+])
+@pytest.mark.asyncio
+async def test_override_persists_through_single_transition_cycle(
+    mock_hass_with_services, 
+    mock_config_entry_factory, 
+    mock_state_factory,
+    transition_type,
+    user_brightness,
+    night_brightness_pct,
+    day_brightness_pct,
+    threshold,
+    test_label
+):
+    """Regression test: Override detected at transition start must persist through the same cycle.
+
+    This test catches the bug where an override is detected AND immediately cleared
+    in the same call to _async_calculate_and_apply_brightness(). The override detection
+    happens first (user adjusted against transition direction), but the override clearing
+    check runs immediately after, and since the circadian target is at an extreme value
+    at transition start, the clearing condition is satisfied and the override gets cleared
+    before it has a chance to take effect.
+
+    Bug symptom: User dims/brightens lights during evening/morning transition → system 
+    detects override → system immediately clears override in same cycle → brightness jumps 
+    back toward circadian target.
+
+    Expected behavior: Override detected → override persists through at least the current
+    cycle → override only clears when circadian target naturally catches up to manual
+    brightness on subsequent cycles.
+    
+    Test parameters:
+    - transition_type: "morning" or "evening"
+    - user_brightness: brightness value the user set (in 0-255 scale)
+    - night_brightness_pct: night brightness as percentage (0-100)
+    - day_brightness_pct: day brightness as percentage (0-100)
+    - threshold: manual override threshold percentage (0-100)
+    """
+
+    hass = mock_hass_with_services
+    entry = mock_config_entry_factory()
+
+    from custom_components.smart_circadian_lighting.light import CircadianLight
+
+    mock_store = MagicMock()
+    mock_store.async_load = AsyncMock(return_value=None)
+    mock_store.async_save = AsyncMock()
+
+    config = {
+        "lights": ["light.test_light"],
+        "day_brightness": day_brightness_pct,
+        "night_brightness": night_brightness_pct,
+        "manual_override_threshold": threshold,
+        "morning_start_time": "06:00:00",
+        "morning_end_time": "07:00:00",
+        "evening_start_time": "19:30:00",
+        "evening_end_time": "20:30:00",
+        "color_temp_enabled": False,
+        "morning_override_clear_time": "08:00:00",
+        "evening_override_clear_time": "02:00:00",
+    }
+
+    light = CircadianLight(hass, "light.test_light", config, entry, mock_store)
+    light.hass = hass
+    light._hass = hass
+    light.entity_id = f"{DOMAIN}.test_light"
+
+    light._is_overridden = False
+    light._override_timestamp = None
+
+    hass.data[DOMAIN] = {entry.entry_id: {"circadian_lights": [light]}}
+
+    with patch('homeassistant.util.dt.now') as mock_now, \
+         patch('custom_components.smart_circadian_lighting.state_management.dt_util.now') as mock_dt_util, \
+         patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_light_dt_util, \
+         patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_async_call_later, \
+         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
+         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
+         patch.object(light._hass.states, 'get') as mock_states_get, \
+         patch.object(light, 'async_write_ha_state') as mock_write_state, \
+         patch.object(light._hass, 'async_create_task', return_value=None):
+
+        ahead_brightness_state = mock_state_factory(
+            "light.test_light", STATE_ON, {ATTR_BRIGHTNESS: user_brightness}
+        )
+        mock_states_get.return_value = ahead_brightness_state
+
+        if transition_type == "morning":
+            transition_start = datetime(2023, 1, 1, 6, 0, 0, 0)
+        else:  # evening
+            transition_start = datetime(2023, 1, 1, 19, 30, 0, 0)
+
+        mock_now.return_value = transition_start
+        mock_dt_util.return_value = transition_start
+        mock_light_dt_util.return_value = transition_start
+
+        await light._async_calculate_and_apply_brightness(force_update=True)
+        await hass.async_block_till_done()
+
+        night_brightness_255 = int(round(night_brightness_pct * 255 / 100))
+        day_brightness_255 = int(round(day_brightness_pct * 255 / 100))
+        threshold_255 = int(round(threshold * 255 / 100))
+
+        if transition_type == "morning":
+            expected_trigger = user_brightness > night_brightness_255 + threshold_255
+            debug_msg = (
+                f"Morning transition [{test_label}]: user brightness {user_brightness} vs "
+                f"night {night_brightness_255} + threshold {threshold_255} = {night_brightness_255 + threshold_255}"
+            )
+        else:  # evening
+            expected_trigger = user_brightness < day_brightness_255 - threshold_255
+            debug_msg = (
+                f"Evening transition [{test_label}]: user brightness {user_brightness} vs "
+                f"day {day_brightness_255} - threshold {threshold_255} = {day_brightness_255 - threshold_255}"
+            )
+
+        assert light._is_overridden == expected_trigger, (
+            f"REGRESSION [{test_label}]: {debug_msg}. "
+            f"Expected override: {expected_trigger}, Got: {light._is_overridden}. "
+            "Override was cleared in the same cycle it was detected. "
+            "This allows the circadian target to override the user's manual adjustment."
+        )
+
 
