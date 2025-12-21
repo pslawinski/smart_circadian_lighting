@@ -269,7 +269,7 @@ last_update_times: dict[str, datetime] = {}
 
 
 def get_circadian_update_info(
-    hass: any,
+    hass: Any,
     light_entity_id: str,
     config: dict[str, Any],
     temp_transition_override: dict[str, Any],

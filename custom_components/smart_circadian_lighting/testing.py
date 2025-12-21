@@ -156,12 +156,6 @@ async def async_run_test_cycle(light: CircadianLight, duration: int) -> None:
     light._test_cancelled = False
     light.async_write_ha_state()
 
-    # Save original brightness
-    light_state = light._hass.states.get(light._light_entity_id)
-    original_brightness = (
-        light_state.attributes.get(ATTR_BRIGHTNESS) if light_state else None
-    )
-
     # Ensure the component isn't in a manual override state to start
     if light._is_overridden:
         await light.async_clear_manual_override()

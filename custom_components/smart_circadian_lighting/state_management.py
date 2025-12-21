@@ -211,7 +211,7 @@ async def _check_for_manual_override(
     new_brightness: int | None,
     old_color_temp: int | None = None,
     new_color_temp: int | None = None,
-    now: datetime = None,
+    now: datetime | None = None,
     was_online: bool = True
 ) -> None:
     """Check for a manual brightness or color temperature change that should trigger an override."""

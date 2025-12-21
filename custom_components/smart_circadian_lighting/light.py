@@ -203,13 +203,26 @@ class CircadianLight(LightEntity):
         if not self._is_on or self._is_overridden:
             return
 
+        now = dt_util.now()
+        mode = circadian_logic.get_circadian_mode(now, self._temp_transition_override, self._config)
+
         # Calculate exact current targets (no transition offsets)
         target_brightness = circadian_logic.calculate_brightness(
             0, self._temp_transition_override, self._config,
             self._day_brightness_255, self._night_brightness_255, self._light_entity_id
         )
 
-        now = dt_util.now()
+        # For morning transition end or day mode, explicitly use day brightness
+        if mode == "morning_transition" or (mode == "day" and self._day_brightness_255 > 200):
+            # Ensure we're setting to exact day brightness (100% or configured)
+            target_brightness = self._day_brightness_255
+            _LOGGER.debug(f"[{self._light_entity_id}] Override cleared during/after morning transition, setting to day brightness: {target_brightness}")
+        # For evening transition end or night mode, explicitly use night brightness
+        elif mode == "evening_transition" or (mode == "night" and self._night_brightness_255 < 100):
+            # Ensure we're setting to exact night brightness
+            target_brightness = self._night_brightness_255
+            _LOGGER.debug(f"[{self._light_entity_id}] Override cleared during/after evening transition, setting to night brightness: {target_brightness}")
+
         target_color_temp = get_ct_at_time(self._color_temp_schedule, now.time())
 
         # Update immediately with transition=0
@@ -602,6 +615,17 @@ class CircadianLight(LightEntity):
             )
             transition = 0
             _LOGGER.debug(f"[{self._light_entity_id}] Not in transition. Target brightness: {target_brightness_255}")
+
+            # If we just exited a transition, force an immediate update to ensure exact target is reached
+            if self._last_circadian_update_time:
+                time_since_update = (now - self._last_circadian_update_time).total_seconds()
+                if time_since_update < 120:  # Within 2 minutes of last update
+                    recent_mode = circadian_logic.get_circadian_mode(
+                        now - timedelta(seconds=10), self._temp_transition_override, self._config
+                    )
+                    if recent_mode in ["morning_transition", "evening_transition"]:
+                        _LOGGER.info(f"[{self._light_entity_id}] Transition just ended ({recent_mode}), forcing exact target brightness update")
+                        force_update = True
 
         self._color_temp_kelvin = get_ct_at_time(self._color_temp_schedule, now.time())
         sun_state = self._hass.states.get("sun.sun")

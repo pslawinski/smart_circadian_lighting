@@ -1,13 +1,12 @@
-import sys
-
-sys.path.insert(0, '../custom_components/smart_circadian_lighting')
-sys.path.insert(0, '..')
-
 """Pytest fixtures for Smart Circadian Lighting integration tests."""
 
+import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+sys.path.insert(0, "../custom_components/smart_circadian_lighting")
+sys.path.insert(0, "..")
 from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
@@ -16,11 +15,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 DOMAIN = "smart_circadian_lighting"
 
 
-
-
-
 class MockState:
     """A State-like object that isn't affected by global mocking."""
+
     def __init__(self, entity_id: str, state: str, attributes: dict | None = None):
         if attributes is None:
             attributes = {}
@@ -29,8 +26,10 @@ class MockState:
         self.attributes = MockAttributes(attributes)
         self.name = entity_id
 
+
 class MockAttributes:
     """Attributes dict that behaves correctly."""
+
     def __init__(self, attributes: dict):
         self._attributes = attributes.copy()
 
@@ -41,9 +40,11 @@ class MockAttributes:
 @pytest.fixture
 def mock_state_factory():
     """Factory fixture for creating mock State objects without global patching."""
+
     def create_mock_state(entity_id: str, state: str, attributes: dict | None = None) -> MockState:
         """Create a State-like object that behaves correctly for testing."""
         return MockState(entity_id, state, attributes)
+
     return create_mock_state
 
 
@@ -65,6 +66,7 @@ def mock_hass_with_services():
 @pytest.fixture
 def mock_config_entry_factory():
     """Factory for creating mock config entries."""
+
     def create_entry(unique_id="test", data=None):
         if data is None:
             data = {
@@ -82,7 +84,9 @@ def mock_config_entry_factory():
             unique_id=unique_id,
             data=data,
         )
+
     return create_entry
+
 
 @pytest.fixture
 async def single_light_entry(hass: HomeAssistant):
@@ -108,6 +112,7 @@ async def single_light_entry(hass: HomeAssistant):
 
     return entry
 
+
 @pytest.fixture
 async def multiple_lights_entry(hass: HomeAssistant):
     """Config entry for multiple lights."""
@@ -131,6 +136,7 @@ async def multiple_lights_entry(hass: HomeAssistant):
     await hass.async_block_till_done()
 
     return entry
+
 
 @pytest.fixture
 def mock_config_entry():
@@ -170,24 +176,26 @@ def mock_config_entry():
 
 def create_states_get_side_effect(entity_states: dict) -> callable:
     """Create a side_effect function for states.get() that handles multiple entity IDs.
-    
+
     Args:
         entity_states: Dict mapping entity_id to State/MockState object
-    
+
     Returns:
         A side_effect function that returns the appropriate state for each entity_id
     """
+
     def states_get_side_effect(entity_id):
         if entity_id in entity_states:
             return entity_states[entity_id]
         return None
+
     return states_get_side_effect
 
 
 @pytest.fixture
 def mock_states_manager():
     """Factory for creating properly configured mock states with side_effect.
-    
+
     Usage:
         import asyncio
         mock_hass = MagicMock()
@@ -195,6 +203,7 @@ def mock_states_manager():
         states = mock_states_manager(mock_hass)
         states.set_light_state("light.test", STATE_ON, brightness=100)
     """
+
     def setup_states(mock_hass):
         import asyncio
 
@@ -202,7 +211,7 @@ def mock_states_manager():
         mock_hass.states = MagicMock()
         mock_hass.states.get = MagicMock(side_effect=create_states_get_side_effect(entity_states))
 
-        if not hasattr(mock_hass, 'loop') or mock_hass.loop is None:
+        if not hasattr(mock_hass, "loop") or mock_hass.loop is None:
             mock_hass.loop = asyncio.get_event_loop()
 
         class StateManager:
