@@ -125,6 +125,7 @@ class CircadianLight(LightEntity):
 
         # State tracking attributes
         self._is_overridden = False
+        self._is_in_direction_override = False
         self._override_timestamp = None
         self._expiration_callback_handle = None  # Handle for scheduled expiration callback
         self._is_online = True  # Assume online initially
@@ -269,9 +270,13 @@ class CircadianLight(LightEntity):
                     is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
 
                     if is_zwave_light and self._is_overridden:
-                        _LOGGER.debug(f"[{self._light_entity_id}] Z-Wave light turned off, clearing manual override")
-                        self._is_overridden = False
-                        await state_management.async_save_override_state(self)
+                        # Only clear the override if it's NOT an in-direction override
+                        if not getattr(self, "_is_in_direction_override", False):
+                            _LOGGER.debug(f"[{self._light_entity_id}] Z-Wave light turned off, clearing manual override")
+                            self._is_overridden = False
+                            await state_management.async_save_override_state(self)
+                        else:
+                            _LOGGER.debug(f"[{self._light_entity_id}] Z-Wave light turned off, persisting in-direction override")
 
                 # Check if light just turned on and needs circadian update
                 if old_state and old_state.state != STATE_ON and new_state.state == STATE_ON:
@@ -369,6 +374,7 @@ class CircadianLight(LightEntity):
             "light_entity_id": self._light_entity_id,
             "is_circadian": self._is_on,
             "is_overridden": self._is_overridden,
+            "is_in_direction_override": getattr(self, "_is_in_direction_override", False),
             "override_timestamp": self._override_timestamp.isoformat() if self._override_timestamp else None,
             "test_mode": self._test_mode,
             "is_testing": self._is_testing,
@@ -625,8 +631,13 @@ class CircadianLight(LightEntity):
         is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
 
         if is_zwave_light and target_brightness_255 is not None:
-            # Always set parameter 18 to current circadian target
-            zwave_brightness = int(target_brightness_255 * 99 / 255)
+            # Use current circadian target unless we have an in-direction override
+            value_to_use = target_brightness_255
+            if self._is_overridden and getattr(self, "_is_in_direction_override", False):
+                value_to_use = self._brightness
+                _LOGGER.debug(f"[{self._light_entity_id}] Using manual brightness {value_to_use} for Z-Wave parameter 18 due to in-direction override")
+
+            zwave_brightness = int(value_to_use * 99 / 255)
             zwave_brightness = max(0, min(99, zwave_brightness))
 
             try:
@@ -642,7 +653,7 @@ class CircadianLight(LightEntity):
                     ),
                     timeout=LIGHT_UPDATE_TIMEOUT,
                 )
-                _LOGGER.debug(f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {target_brightness_255})")
+                _LOGGER.debug(f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {value_to_use})")
             except TimeoutError:
                 _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
             except HomeAssistantError as e:

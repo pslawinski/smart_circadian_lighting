@@ -19,7 +19,19 @@ An override is triggered only if **all** of the following conditions are met:
 
 For example, if the current circadian brightness is 150, and a user dims the light to 130, an override will only be triggered if `130 < (150 - manual_override_threshold)`. This allows for small adjustments without disabling the circadian rhythm, as long as the change doesn't significantly deviate from the setpoint.
 
-Adjusting brightness in the *same* direction as the transition does not trigger a "hard" manual override *during the transition*. However, if the light has been adjusted in the direction of the transition *before the transition starts* (i.e., at transition start time), this is detected as a "soft override": the system acknowledges the user's pre-adjustment and holds the light at that brightness level until the circadian target "catches up," then resumes normal circadian control.
+Adjusting brightness in the *same* direction as the transition does not trigger a "hard" manual override *during the transition* for most lights. However, there is special handling for Z-Wave lights and "soft adjustments" at the start of a transition.
+
+### Z-Wave Specific In-Direction Overrides
+
+For Z-Wave lights, any substantial manual adjustment (exceeding the `manual_override_threshold`) made **in the direction** of an active transition will trigger a specialized "in-direction override." 
+
+- **Captured Value:** The system captures the manually set brightness.
+- **Z-Wave Parameter 18:** Instead of setting parameter 18 to the calculated circadian target, the system sets it to your **manual brightness value**.
+- **Persistence:** Unlike standard overrides, Z-Wave in-direction overrides **persist** even if the light is turned off and back on. This ensures the light returns to your manually set level until the circadian transition naturally "catches up" or a scheduled clear time is reached.
+
+### Soft Overrides (Transition Start)
+
+If the light has been adjusted in the direction of the transition *before the transition starts* (i.e., at transition start time), this is detected as a "soft override": the system acknowledges the user's pre-adjustment and holds the light at that brightness level until the circadian target "catches up," then resumes normal circadian control.
 
 For example:
 - **Evening transition scenario:** If a user dims the light to 25% before the evening transition starts (at which time the system plans to begin decreasing brightness further), the system detects this pre-adjustment and applies a soft override. The light remains at 25% as the evening transition progresses, until the circadian calculation naturally reaches or passes 25%, at which point the override is cleared and normal control resumes.
