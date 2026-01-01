@@ -15,6 +15,7 @@ An override is triggered only if **all** of the following conditions are met:
     *   **Morning Transition** (increasing brightness): User **dims** the light.
     *   **Evening Transition** (decreasing brightness): User **brightens** the light.
 3.  **Crosses Setpoint Threshold:** The new brightness level must be beyond the calculated circadian setpoint by at least the configured `manual_override_threshold`.
+4.  **Light must be ON:** Override detection is only performed on lights that are physically on (`STATE_ON`). Changes to a light's state while it is off (e.g., "preloading" brightness for a future turn-on) are ignored to prevent false overrides.
 
 For example, if the current circadian brightness is 150, and a user dims the light to 130, an override will only be triggered if `130 < (150 - manual_override_threshold)`. This allows for small adjustments without disabling the circadian rhythm, as long as the change doesn't significantly deviate from the setpoint.
 
