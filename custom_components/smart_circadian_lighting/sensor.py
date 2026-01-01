@@ -25,8 +25,10 @@ async def async_setup_entry(
     config = domain_data["config"]
 
     sensors = [CircadianModeSensor(hass, light, entry) for light in circadian_lights if light is not None]
+    sensors.extend([CircadianBrightnessSensor(hass, light, entry) for light in circadian_lights if light is not None])
 
     # Add a single sensor for the brightness graph
+    sensors.append(CircadianGlobalBrightnessSensor(hass, entry, config))
     sensors.append(CircadianBrightnessGraphSensor(hass, entry, config))
     if config.get(CONF_COLOR_TEMP_ENABLED):
         sensors.append(CircadianColorTempGraphSensor(hass, entry, config))
@@ -48,6 +50,7 @@ class CircadianModeSensor(SensorEntity):
         self._state = None
         self._unsub_tracker = None
         self._attr_name = f"{light.name} Circadian Mode"
+        self._attr_device_info = light.device_info
 
     @property
     def unique_id(self) -> str:
@@ -74,6 +77,110 @@ class CircadianModeSensor(SensorEntity):
     async def async_update_state(self, now=None):
         """Update the sensor state."""
         self._state = self._light.circadian_mode
+        self.async_write_ha_state()
+
+    async def async_update(self) -> None:
+        """Request an update of the sensor."""
+        await self.async_update_state()
+
+
+class CircadianBrightnessSensor(SensorEntity):
+    """Representation of a sensor that shows the current target brightness for a light."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:brightness-6"
+    _attr_native_unit_of_measurement = "%"
+
+    def __init__(self, hass: HomeAssistant, light: object, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
+        self._hass = hass
+        self._light = light
+        self._entry = entry
+        self._state = None
+        self._unsub_tracker = None
+        self._attr_name = f"{light.name} Target Brightness"
+        self._attr_device_info = light.device_info
+
+    @property
+    def unique_id(self) -> str:
+        """Return a unique ID."""
+        return f"{self._light.unique_id}_target_brightness"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the state of the sensor."""
+        if self._light.brightness is None:
+            return None
+        # Convert 0-255 to 0-100 percentage
+        return round(self._light.brightness * 100 / 255)
+
+    async def async_added_to_hass(self) -> None:
+        """Register update listener."""
+        self._unsub_tracker = async_track_time_interval(
+            self._hass, self.async_update_state, timedelta(seconds=60)
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister update listener."""
+        if self._unsub_tracker:
+            self._unsub_tracker()
+            self._unsub_tracker = None
+
+    async def async_update(self) -> None:
+        """Request an update of the sensor."""
+        await self.async_update_state()
+
+
+class CircadianGlobalBrightnessSensor(SensorEntity):
+    """Representation of a sensor that shows the current global target brightness."""
+
+    _attr_icon = "mdi:brightness-6"
+    _attr_native_unit_of_measurement = "%"
+    _attr_name = "Circadian Global Brightness"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, config: dict) -> None:
+        """Initialize the sensor."""
+        self._hass = hass
+        self._entry = entry
+        self._config = config
+        self._unsub_tracker = None
+        self.entity_id = f"sensor.circadian_global_brightness_{self._entry.entry_id}"
+        self._day_brightness_255 = _convert_percent_to_255(self._config["day_brightness"])
+        self._night_brightness_255 = _convert_percent_to_255(self._config["night_brightness"])
+
+    @property
+    def unique_id(self) -> str:
+        """Return a unique ID."""
+        return f"{DOMAIN}_{self._entry.entry_id}_global_brightness"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the state of the sensor."""
+        brightness_255 = circadian_logic.calculate_brightness_for_time(
+            datetime.now(),
+            {},  # No overrides for global sensor
+            self._config,
+            self._day_brightness_255,
+            self._night_brightness_255,
+            None,
+            debug_enable=False,
+        )
+        return round(brightness_255 * 100 / 255)
+
+    async def async_added_to_hass(self) -> None:
+        """Register update listener."""
+        self._unsub_tracker = async_track_time_interval(
+            self._hass, self.async_update_state, timedelta(seconds=60)
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister update listener."""
+        if self._unsub_tracker:
+            self._unsub_tracker()
+            self._unsub_tracker = None
+
+    async def async_update_state(self, now=None):
+        """Update the sensor state."""
         self.async_write_ha_state()
 
     async def async_update(self) -> None:
