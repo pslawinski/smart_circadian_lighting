@@ -24,8 +24,16 @@ async def async_setup_entry(
     circadian_lights = domain_data.get("circadian_lights", [])
     config = domain_data["config"]
 
-    sensors = [CircadianModeSensor(hass, light, entry) for light in circadian_lights if light is not None]
-    sensors.extend([CircadianBrightnessSensor(hass, light, entry) for light in circadian_lights if light is not None])
+    sensors = [
+        CircadianModeSensor(hass, light, entry) for light in circadian_lights if light is not None
+    ]
+    sensors.extend(
+        [
+            CircadianBrightnessSensor(hass, light, entry)
+            for light in circadian_lights
+            if light is not None
+        ]
+    )
 
     # Add a single sensor for the brightness graph
     sensors.append(CircadianGlobalBrightnessSensor(hass, entry, config))
@@ -126,6 +134,10 @@ class CircadianBrightnessSensor(SensorEntity):
             self._unsub_tracker()
             self._unsub_tracker = None
 
+    async def async_update_state(self, now=None):
+        """Update the sensor state."""
+        self.async_write_ha_state()
+
     async def async_update(self) -> None:
         """Request an update of the sensor."""
         await self.async_update_state()
@@ -213,7 +225,9 @@ class CircadianBrightnessGraphSensor(SensorEntity):
         }
         self._config_hash = hashlib.md5(str(sorted(relevant_config.items())).encode()).hexdigest()
         # Generate initial graph
-        self._attr_extra_state_attributes["daily_brightness_graph"] = self._generate_brightness_graph()
+        self._attr_extra_state_attributes["daily_brightness_graph"] = (
+            self._generate_brightness_graph()
+        )
 
     @property
     def unique_id(self) -> str:
@@ -306,10 +320,11 @@ class CircadianBrightnessGraphSensor(SensorEntity):
         new_hash = hashlib.md5(str(sorted(relevant_config.items())).encode()).hexdigest()
         if new_hash != self._config_hash:
             self._config_hash = new_hash
-            self._attr_extra_state_attributes[
-                "daily_brightness_graph"
-            ] = self._generate_brightness_graph()
+            self._attr_extra_state_attributes["daily_brightness_graph"] = (
+                self._generate_brightness_graph()
+            )
         self.async_write_ha_state()
+
 
 class CircadianColorTempGraphSensor(SensorEntity):
     """Representation of a sensor that holds the daily color temperature graph for the integration."""
@@ -329,7 +344,9 @@ class CircadianColorTempGraphSensor(SensorEntity):
         # Compute hash of relevant config parts for color temp calculation
         relevant_config = {
             "color_temp_enabled": config.get("color_temp_enabled", False),
-            "sunrise_sunset_color_temp_kelvin": config.get("sunrise_sunset_color_temp_kelvin", 2700),
+            "sunrise_sunset_color_temp_kelvin": config.get(
+                "sunrise_sunset_color_temp_kelvin", 2700
+            ),
             "midday_color_temp_kelvin": config.get("midday_color_temp_kelvin", 5000),
             "night_color_temp_kelvin": config.get("night_color_temp_kelvin", 1800),
             "color_curve_type": config.get("color_curve_type", "cosine"),
@@ -355,10 +372,14 @@ class CircadianColorTempGraphSensor(SensorEntity):
         sun_state = self._hass.states.get("sun.sun")
         sun_elevation = sun_state.attributes.get("elevation") if sun_state else None
         if kelvin is not None:
-            _LOGGER.debug(f"[{self._entry.entry_id}] Current color temp: {kelvin}K, sun elevation: {sun_elevation}°")
+            _LOGGER.debug(
+                f"[{self._entry.entry_id}] Current color temp: {kelvin}K, sun elevation: {sun_elevation}°"
+            )
             return str(kelvin)
         else:
-            _LOGGER.debug(f"[{self._entry.entry_id}] No color temp for current time, sun elevation: {sun_elevation}°")
+            _LOGGER.debug(
+                f"[{self._entry.entry_id}] No color temp for current time, sun elevation: {sun_elevation}°"
+            )
             return None
 
     def _get_update_interval(self, current_time):
@@ -369,8 +390,15 @@ class CircadianColorTempGraphSensor(SensorEntity):
         evening_start = self._color_temp_schedule.get("evening_start")
         evening_end = self._color_temp_schedule.get("evening_end")
 
-        if (morning_start and morning_end and _is_time_in_period(current_time, morning_start, morning_end)) or \
-           (evening_start and evening_end and _is_time_in_period(current_time, evening_start, evening_end)):
+        if (
+            morning_start
+            and morning_end
+            and _is_time_in_period(current_time, morning_start, morning_end)
+        ) or (
+            evening_start
+            and evening_end
+            and _is_time_in_period(current_time, evening_start, evening_end)
+        ):
             return 300  # 5 minutes during color temp transitions
 
         # During daytime, update every 5 minutes
@@ -384,7 +412,9 @@ class CircadianColorTempGraphSensor(SensorEntity):
 
     def _generate_color_temp_graph(self) -> list[tuple[str, int]]:
         """Generate a list of [timestamp, kelvin] pairs for a 24-hour period at actual update times."""
-        _LOGGER.debug(f"[{self._entry.entry_id}] Generating color temp graph using scheduler simulation")
+        _LOGGER.debug(
+            f"[{self._entry.entry_id}] Generating color temp graph using scheduler simulation"
+        )
         if not self._color_temp_schedule:
             _LOGGER.debug(f"[{self._entry.entry_id}] No color temp schedule available for graph")
             return []
@@ -397,12 +427,16 @@ class CircadianColorTempGraphSensor(SensorEntity):
             # Get current temperature
             kelvin = get_ct_at_time(self._color_temp_schedule, current_time)
             if kelvin is not None:
-                timestamp = f"{current_time.hour:02d}:{current_time.minute:02d}:{current_time.second:02d}"
+                timestamp = (
+                    f"{current_time.hour:02d}:{current_time.minute:02d}:{current_time.second:02d}"
+                )
                 color_temp_points.append((f"{datetime.now().date()}T{timestamp}", kelvin))
 
             # Get update interval and advance time
             interval = self._get_update_interval(current_time)
-            current_seconds = current_time.hour * 3600 + current_time.minute * 60 + current_time.second
+            current_seconds = (
+                current_time.hour * 3600 + current_time.minute * 60 + current_time.second
+            )
             new_seconds = current_seconds + interval
 
             # Handle day wraparound
@@ -414,7 +448,9 @@ class CircadianColorTempGraphSensor(SensorEntity):
             new_second = new_seconds % 60
             current_time = time(new_hour, new_minute, new_second)
 
-        _LOGGER.debug(f"[{self._entry.entry_id}] Generated {len(color_temp_points)} color temp points at update times")
+        _LOGGER.debug(
+            f"[{self._entry.entry_id}] Generated {len(color_temp_points)} color temp points at update times"
+        )
         return color_temp_points
 
     async def async_added_to_hass(self) -> None:
@@ -436,7 +472,9 @@ class CircadianColorTempGraphSensor(SensorEntity):
         # Check if config has changed
         relevant_config = {
             "color_temp_enabled": self._config.get("color_temp_enabled"),
-            "sunrise_sunset_color_temp_kelvin": self._config.get("sunrise_sunset_color_temp_kelvin"),
+            "sunrise_sunset_color_temp_kelvin": self._config.get(
+                "sunrise_sunset_color_temp_kelvin"
+            ),
             "midday_color_temp_kelvin": self._config.get("midday_color_temp_kelvin"),
             "night_color_temp_kelvin": self._config.get("night_color_temp_kelvin"),
             "color_curve_type": self._config.get("color_curve_type"),
@@ -447,16 +485,20 @@ class CircadianColorTempGraphSensor(SensorEntity):
         }
         new_hash = hashlib.md5(str(sorted(relevant_config.items())).encode()).hexdigest()
         if new_hash != self._config_hash or self._color_temp_schedule is None:
-            _LOGGER.debug(f"[{self._entry.entry_id}] Config changed or no schedule, regenerating schedule and graph")
+            _LOGGER.debug(
+                f"[{self._entry.entry_id}] Config changed or no schedule, regenerating schedule and graph"
+            )
             self._config_hash = new_hash
             self._color_temp_schedule = get_color_temp_schedule(self._hass, self._config)
             if self._color_temp_schedule:
-                self._attr_extra_state_attributes[
-                    "daily_color_temp_graph"
-                ] = self._generate_color_temp_graph()
+                self._attr_extra_state_attributes["daily_color_temp_graph"] = (
+                    self._generate_color_temp_graph()
+                )
             else:
                 _LOGGER.warning(f"[{self._entry.entry_id}] Failed to generate color temp schedule")
                 self._attr_extra_state_attributes["daily_color_temp_graph"] = []
         else:
-            _LOGGER.debug(f"[{self._entry.entry_id}] Config unchanged and schedule exists, skipping regeneration")
+            _LOGGER.debug(
+                f"[{self._entry.entry_id}] Config unchanged and schedule exists, skipping regeneration"
+            )
         self.async_write_ha_state()

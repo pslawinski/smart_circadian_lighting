@@ -1,4 +1,5 @@
 """The Smart Circadian Lighting integration."""
+
 import asyncio
 import logging
 
@@ -67,7 +68,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DEFAULT_NIGHT_COLOR_TEMP_KELVIN,
             DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
         )
-        config.setdefault("sunrise_sunset_color_temp_kelvin", DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN)
+
+        config.setdefault(
+            "sunrise_sunset_color_temp_kelvin", DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN
+        )
         config.setdefault("midday_color_temp_kelvin", DEFAULT_MIDDAY_COLOR_TEMP_KELVIN)
         config.setdefault("night_color_temp_kelvin", DEFAULT_NIGHT_COLOR_TEMP_KELVIN)
         config.setdefault("color_curve_type", DEFAULT_COLOR_CURVE_TYPE)
@@ -127,9 +131,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             duration = service_call.data.get("duration")
             for light in hass.data[DOMAIN][entry.entry_id]["circadian_lights"]:
                 if light.entity_id == entity_id:
-                    await light.set_temporary_transition(
-                        mode, start_time, end_time, duration
-                    )
+                    await light.set_temporary_transition(mode, start_time, end_time, duration)
                     break
 
         async def _async_end_current_transition_service_handler(

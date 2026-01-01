@@ -29,9 +29,11 @@ def kelvin_to_mired(kelvin: float) -> int:
     """Convert Kelvin to mireds."""
     return int(1_000_000 / kelvin)
 
+
 def mired_to_kelvin(mired: float) -> int:
     """Convert mireds to Kelvin."""
     return int(1_000_000 / mired)
+
 
 def _parse_time(
     hass: HomeAssistant,
@@ -47,16 +49,18 @@ def _parse_time(
         try:
             return dt_util.parse_time(brightness_config_time)
         except (ValueError, TypeError):
-             _LOGGER.warning(f"Invalid brightness time '{brightness_config_time}' for sync, using default '{default_time_str}'")
-             return dt_util.parse_time(default_time_str)
+            _LOGGER.warning(
+                f"Invalid brightness time '{brightness_config_time}' for sync, using default '{default_time_str}'"
+            )
+            return dt_util.parse_time(default_time_str)
 
     if "sunrise" in time_str or "sunset" in time_str:
         parts = time_str.split(" ")
-        event = parts[0] # "sunrise" or "sunset"
+        event = parts[0]  # "sunrise" or "sunset"
         offset = timedelta()
         if len(parts) > 1:
-            op = parts[1] # "+" or "-"
-            offset_str = parts[2] # "HH:MM:SS"
+            op = parts[1]  # "+" or "-"
+            offset_str = parts[2]  # "HH:MM:SS"
             try:
                 parsed_offset = dt_util.parse_duration(offset_str)
                 if op == "-":
@@ -67,11 +71,12 @@ def _parse_time(
                 _LOGGER.error(f"Invalid offset format in '{time_str}'")
                 return None
 
-
         try:
             now = dt_util.now()
             # Calculate for today. We only care about the time part.
-            event_today = get_astral_event_next(hass, event, now.replace(hour=0, minute=0, second=0, microsecond=0))
+            event_today = get_astral_event_next(
+                hass, event, now.replace(hour=0, minute=0, second=0, microsecond=0)
+            )
             if event_today:
                 event_today = dt_util.as_local(event_today)
                 return (event_today + offset).time()
@@ -86,8 +91,11 @@ def _parse_time(
     try:
         return dt_util.parse_time(time_str)
     except (ValueError, TypeError):
-        _LOGGER.warning(f"Invalid time format '{time_str}' for color temperature, using default '{default_time_str}'")
+        _LOGGER.warning(
+            f"Invalid time format '{time_str}' for color temperature, using default '{default_time_str}'"
+        )
         return dt_util.parse_time(default_time_str)
+
 
 def get_color_temp_schedule(
     hass: HomeAssistant,
@@ -132,14 +140,22 @@ def get_color_temp_schedule(
         "21:30:00",
     )
 
-    _LOGGER.debug(f"Parsed times: morning_start={morning_start}, morning_end={morning_end}, evening_start={evening_start}, evening_end={evening_end}")
-    _LOGGER.debug(f"Temp values: sunrise_sunset={sunrise_sunset_temp}, midday={midday_temp}, night={night_temp}")
+    _LOGGER.debug(
+        f"Parsed times: morning_start={morning_start}, morning_end={morning_end}, evening_start={evening_start}, evening_end={evening_end}"
+    )
+    _LOGGER.debug(
+        f"Temp values: sunrise_sunset={sunrise_sunset_temp}, midday={midday_temp}, night={night_temp}"
+    )
 
     # Get sunrise, solar_noon, sunset
     now = dt_util.now()
     try:
-        sunrise = get_astral_event_next(hass, "sunrise", now.replace(hour=0, minute=0, second=0, microsecond=0))
-        sunset = get_astral_event_next(hass, "sunset", now.replace(hour=0, minute=0, second=0, microsecond=0))
+        sunrise = get_astral_event_next(
+            hass, "sunrise", now.replace(hour=0, minute=0, second=0, microsecond=0)
+        )
+        sunset = get_astral_event_next(
+            hass, "sunset", now.replace(hour=0, minute=0, second=0, microsecond=0)
+        )
         sunrise_local = dt_util.as_local(sunrise) if sunrise else None
         sunset_local = dt_util.as_local(sunset) if sunset else None
         _LOGGER.debug(f"Sunrise UTC: {sunrise}, Local: {sunrise_local}")
@@ -154,17 +170,22 @@ def get_color_temp_schedule(
             sunset_time = sunset_local.time()
             solar_noon_time = solar_noon_local.time()
         else:
-            _LOGGER.warning("Could not get sun events for color temperature schedule, using fixed times")
+            _LOGGER.warning(
+                "Could not get sun events for color temperature schedule, using fixed times"
+            )
             # Fallback to fixed times if sun events unavailable
-            sunrise_local = dt_util.parse_datetime("2023-01-01 06:00:00").replace(year=now.year, month=now.month, day=now.day)
-            sunset_local = dt_util.parse_datetime("2023-01-01 18:00:00").replace(year=now.year, month=now.month, day=now.day)
+            sunrise_local = dt_util.parse_datetime("2023-01-01 06:00:00").replace(
+                year=now.year, month=now.month, day=now.day
+            )
+            sunset_local = dt_util.parse_datetime("2023-01-01 18:00:00").replace(
+                year=now.year, month=now.month, day=now.day
+            )
             sunrise_time = sunrise_local.time()
             sunset_time = sunset_local.time()
             solar_noon_time = time(12, 0, 0)  # Midday
     except Exception as e:
         _LOGGER.error(f"Error getting sun events: {e}")
         return None
-
 
     schedule = {
         "morning_start": morning_start,
@@ -181,6 +202,7 @@ def get_color_temp_schedule(
     }
     _LOGGER.debug(f"Generated color temp schedule: {schedule}")
     return schedule
+
 
 def _is_time_in_period(now: time, start: time, end: time) -> bool:
     """Checks if the current time is within a given period, handling midnight crossings."""
@@ -213,6 +235,7 @@ def interpolate_temp(start_temp: int, end_temp: int, progress: float, curve_type
     if curve_type == "cosine":
         # Cosine interpolation for smoother transitions
         import math
+
         progress = 0.5 * (1 - math.cos(math.pi * progress))
     # Linear is default
     return round(start_temp + progress * (end_temp - start_temp))

@@ -12,6 +12,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
 def _convert_percent_to_255(percent: float) -> int:
     """Convert a percentage (0-100) to a 0-255 scale.
 
@@ -24,6 +25,7 @@ def _convert_percent_to_255(percent: float) -> int:
     if percent >= 100:
         return 255
     return int(round(percent * 255 / 100))
+
 
 def get_transition_times(
     mode: str, temp_transition_override: dict[str, Any], config: dict[str, Any]
@@ -48,12 +50,14 @@ def get_transition_times(
     end_time = time.fromisoformat(config[f"{mode}_end_time"])
     return start_time, end_time
 
+
 def _is_time_in_period(now: time, start: time, end: time) -> bool:
     """Checks if the current time is within a given period, handling midnight crossings."""
     if start <= end:
         return start <= now < end
-    else: # Period crosses midnight
+    else:  # Period crosses midnight
         return start <= now or now < end
+
 
 def get_circadian_mode(
     dt: datetime, temp_transition_override: dict[str, Any], config: dict[str, Any]
@@ -75,6 +79,7 @@ def get_circadian_mode(
         return "day"
     else:
         return "night"
+
 
 def is_morning_transition(
     dt: datetime, temp_transition_override: dict[str, Any], config: dict[str, Any]
@@ -107,7 +112,7 @@ def get_progress(current: time, start: time, end: time) -> float:
     start_ts = start.hour * 3600 + start.minute * 60 + start.second
     end_ts = end.hour * 3600 + end.minute * 60 + end.second
 
-    if end_ts < start_ts: # Period crosses midnight
+    if end_ts < start_ts:  # Period crosses midnight
         if now_ts < start_ts:
             now_ts += 24 * 3600
         end_ts += 24 * 3600
@@ -159,18 +164,14 @@ def calculate_brightness_for_time(
 
     if mode == "morning_transition":
         progress = get_progress(current_time, morning_start_time, morning_end_time)
-        target_brightness = night_brightness + progress * (
-            day_brightness - night_brightness
-        )
+        target_brightness = night_brightness + progress * (day_brightness - night_brightness)
         if debug_enable:
             _LOGGER.debug(
                 f"{log_prefix}Morning transition in progress ({progress:.2f}). Brightness: {target_brightness:.1f}"
             )
     elif mode == "evening_transition":
         progress = get_progress(current_time, evening_start_time, evening_end_time)
-        target_brightness = day_brightness - progress * (
-            day_brightness - night_brightness
-        )
+        target_brightness = day_brightness - progress * (day_brightness - night_brightness)
         if debug_enable:
             _LOGGER.debug(
                 f"{log_prefix}Evening transition in progress ({progress:.2f}). Brightness: {target_brightness:.1f}"
@@ -179,7 +180,7 @@ def calculate_brightness_for_time(
         target_brightness = day_brightness
         if debug_enable:
             _LOGGER.debug(f"{log_prefix}Daytime. Brightness: {target_brightness:.1f}")
-    else: # night
+    else:  # night
         target_brightness = night_brightness
         if debug_enable:
             _LOGGER.debug(f"{log_prefix}Nighttime. Brightness: {target_brightness:.1f}")
@@ -208,23 +209,21 @@ def calculate_brightness(
         day_brightness_255,
         night_brightness_255,
         light_entity_id,
-        debug_enable
+        debug_enable,
     )
 
 
 def get_seconds_until_next_transition(
-    temp_transition_override: dict[str, Any], config: dict[str, Any], light_entity_id: str | None = None
+    temp_transition_override: dict[str, Any],
+    config: dict[str, Any],
+    light_entity_id: str | None = None,
 ) -> int:
     """Calculate the number of seconds until the next transition begins."""
     now = datetime.now()
     current_time = now.time()
 
-    morning_start_time, _ = get_transition_times(
-        "morning", temp_transition_override, config
-    )
-    evening_start_time, _ = get_transition_times(
-        "evening", temp_transition_override, config
-    )
+    morning_start_time, _ = get_transition_times("morning", temp_transition_override, config)
+    evening_start_time, _ = get_transition_times("evening", temp_transition_override, config)
 
     morning_start_dt = now.replace(
         hour=morning_start_time.hour,
@@ -299,13 +298,8 @@ def get_circadian_update_info(
     )
 
     # Skip update if brightness change is negligible
-    if (
-        abs(current_brightness - circadian_brightness)
-        < MIN_BRIGHTNESS_CHANGE_FOR_UPDATE
-    ):
-        _LOGGER.debug(
-            f"[{light_entity_id}] Brightness change too small, skipping update."
-        )
+    if abs(current_brightness - circadian_brightness) < MIN_BRIGHTNESS_CHANGE_FOR_UPDATE:
+        _LOGGER.debug(f"[{light_entity_id}] Brightness change too small, skipping update.")
         return None
 
     now = datetime.now()
@@ -318,9 +312,7 @@ def get_circadian_update_info(
     if in_morning_transition or in_evening_transition:
         # Get transition start and end times
         mode = "morning" if in_morning_transition else "evening"
-        start_time, end_time = get_transition_times(
-            mode, temp_transition_override, config
-        )
+        start_time, end_time = get_transition_times(mode, temp_transition_override, config)
         transition_duration = (
             datetime.combine(datetime.today(), end_time)
             - datetime.combine(datetime.today(), start_time)
@@ -336,26 +328,19 @@ def get_circadian_update_info(
             num_steps = total_brightness_change / MIN_BRIGHTNESS_CHANGE_FOR_UPDATE
 
             # Calculate the dynamic update interval
-            dynamic_interval = max(
-                MIN_UPDATE_INTERVAL, transition_duration / num_steps
-            )
+            dynamic_interval = max(MIN_UPDATE_INTERVAL, transition_duration / num_steps)
 
             # Check if enough time has passed since the last update
             last_update = last_update_times.get(light_entity_id)
             if last_update and (now - last_update).total_seconds() < dynamic_interval:
-                _LOGGER.debug(
-                    f"[{light_entity_id}] Dynamic interval not met, skipping update."
-                )
+                _LOGGER.debug(f"[{light_entity_id}] Dynamic interval not met, skipping update.")
                 return None
 
             # Set hardware transition
             hardware_transition = max(0, dynamic_interval - TRANSITION_SAFETY_BUFFER)
 
             # No hardware transition for small brightness changes
-            if (
-                abs(current_brightness - circadian_brightness)
-                <= MIN_BRIGHTNESS_CHANGE_FOR_UPDATE
-            ):
+            if abs(current_brightness - circadian_brightness) <= MIN_BRIGHTNESS_CHANGE_FOR_UPDATE:
                 transition = 0
             else:
                 transition = hardware_transition

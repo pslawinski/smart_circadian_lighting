@@ -33,9 +33,7 @@ async def start_test_transition(
     light._test_mode = True
     light.async_write_ha_state()
 
-    night_brightness = _convert_percent_to_255(
-        light._config["night_brightness"]
-    )
+    night_brightness = _convert_percent_to_255(light._config["night_brightness"])
     day_brightness = _convert_percent_to_255(light._config["day_brightness"])
 
     start_brightness, end_brightness = (
@@ -106,9 +104,7 @@ async def set_temporary_transition(
     now = datetime.now()
     is_transitioning = circadian_logic.is_morning_transition(
         now, light._temp_transition_override, light._config
-    ) or circadian_logic.is_evening_transition(
-        now, light._temp_transition_override, light._config
-    )
+    ) or circadian_logic.is_evening_transition(now, light._temp_transition_override, light._config)
     if is_transitioning:
         await light.async_update_brightness(force_update=True)
 
@@ -127,9 +123,7 @@ async def end_current_transition(light: CircadianLight) -> None:
         light._brightness = _convert_percent_to_255(target_brightness_pct)
         await light.async_update_light(transition=1)
     elif is_evening:
-        night_brightness_pct = (
-            light._config["night_brightness"]
-        )
+        night_brightness_pct = light._config["night_brightness"]
         light._brightness = _convert_percent_to_255(night_brightness_pct)
         await light.async_update_light(transition=1)
     light._temp_transition_override = {}
@@ -148,19 +142,15 @@ async def async_run_test_cycle_all(lights: list[CircadianLight], duration: int) 
 async def async_run_test_cycle(light: CircadianLight, duration: int) -> None:
     """Run a test cycle of brightness changes using the component's real scheduler."""
     if light.is_testing:
-        _LOGGER.warning(f"[{light._light_entity_id}] Test cycle for {light.name} is already running.")
+        _LOGGER.warning(
+            f"[{light._light_entity_id}] Test cycle for {light.name} is already running."
+        )
         return
 
     _LOGGER.info(f"[{light._light_entity_id}] Starting test cycle for {light.name}")
     light.is_testing = True
     light._test_cancelled = False
     light.async_write_ha_state()
-
-    # Save original brightness
-    light_state = light._hass.states.get(light._light_entity_id)
-    original_brightness = (
-        light_state.attributes.get(ATTR_BRIGHTNESS) if light_state else None
-    )
 
     # Ensure the component isn't in a manual override state to start
     if light._is_overridden:
@@ -179,7 +169,9 @@ async def async_run_test_cycle(light: CircadianLight, duration: int) -> None:
             await _async_run_single_test_phase(light, "evening", duration)
 
     finally:
-        _LOGGER.info(f"[{light._light_entity_id}] Restoring to current target brightness for {light.name}")
+        _LOGGER.info(
+            f"[{light._light_entity_id}] Restoring to current target brightness for {light.name}"
+        )
         # Explicitly cancel the last scheduled update to exit the test loop
         if light._unsub_tracker:
             light._unsub_tracker()
@@ -197,27 +189,27 @@ async def async_run_test_cycle(light: CircadianLight, duration: int) -> None:
         light._schedule_update()
 
 
-async def _async_run_single_test_phase(
-    light: CircadianLight, mode: str, duration: int
-) -> None:
+async def _async_run_single_test_phase(light: CircadianLight, mode: str, duration: int) -> None:
     """Run a single phase of the test cycle by leveraging the main scheduler."""
     if light._test_cancelled:
         _LOGGER.info(f"[{light._light_entity_id}] Skipping {mode} test phase due to cancellation.")
         return
 
-    _LOGGER.info(f"[{light._light_entity_id}] Starting {mode} test phase for {light.name} for {duration} seconds...")
+    _LOGGER.info(
+        f"[{light._light_entity_id}] Starting {mode} test phase for {light.name} for {duration} seconds..."
+    )
 
     # Set initial brightness before starting the transition
     if mode == "morning":
         # Start at night brightness
-        start_brightness = _convert_percent_to_255(
-            light._config["night_brightness"]
-        )
+        start_brightness = _convert_percent_to_255(light._config["night_brightness"])
     else:  # evening
         # Start at day brightness
         start_brightness = _convert_percent_to_255(light._config["day_brightness"])
 
-    _LOGGER.debug(f"[{light._light_entity_id}] Setting initial brightness for {mode} test to {start_brightness}")
+    _LOGGER.debug(
+        f"[{light._light_entity_id}] Setting initial brightness for {mode} test to {start_brightness}"
+    )
     await light.async_update_light(brightness=start_brightness, transition=0)
 
     # Poll to confirm brightness change, with a 30-second timeout
@@ -225,9 +217,11 @@ async def _async_run_single_test_phase(
     confirmed = False
     current_brightness = None
     for i in range(confirmation_timeout):
-        await asyncio.sleep(1) # Wait 1 second before polling.
+        await asyncio.sleep(1)  # Wait 1 second before polling.
 
-        _LOGGER.debug(f"[{light._light_entity_id}] Polling for brightness confirmation (Attempt {i+1}/{confirmation_timeout})...")
+        _LOGGER.debug(
+            f"[{light._light_entity_id}] Polling for brightness confirmation (Attempt {i + 1}/{confirmation_timeout})..."
+        )
 
         # Check if the entity is online.
         if not light.available:
@@ -246,7 +240,9 @@ async def _async_run_single_test_phase(
             )
             # Check for brightness match with tolerance
             if current_brightness is not None and abs(current_brightness - start_brightness) <= 1:
-                _LOGGER.debug(f"[{light._light_entity_id}] Initial brightness confirmed for {light.name} after {i+1} seconds.")
+                _LOGGER.debug(
+                    f"[{light._light_entity_id}] Initial brightness confirmed for {light.name} after {i + 1} seconds."
+                )
                 confirmed = True
                 break
         else:
@@ -284,7 +280,9 @@ async def _async_run_single_test_phase(
     # Wait for the duration of this test phase, checking for cancellation
     for _ in range(duration):
         if light._test_cancelled:
-            _LOGGER.info(f"[{light._light_entity_id}] Test cycle for {light.name} was cancelled during {mode} phase.")
+            _LOGGER.info(
+                f"[{light._light_entity_id}] Test cycle for {light.name} was cancelled during {mode} phase."
+            )
             return
         await asyncio.sleep(1)
 
@@ -303,7 +301,9 @@ async def async_cancel_test_cycle_all(lights: list[CircadianLight]) -> None:
 async def async_cancel_test_cycle(light: CircadianLight) -> None:
     """Cancel the running test cycle."""
     if not light.is_testing:
-        _LOGGER.warning(f"[{light._light_entity_id}] No test cycle is currently running for {light.name}.")
+        _LOGGER.warning(
+            f"[{light._light_entity_id}] No test cycle is currently running for {light.name}."
+        )
         return
 
     _LOGGER.info(f"[{light._light_entity_id}] Cancelling test cycle for {light.name}.")

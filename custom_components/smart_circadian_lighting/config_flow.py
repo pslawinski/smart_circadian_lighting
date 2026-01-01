@@ -1,4 +1,3 @@
-
 import datetime
 import logging
 from typing import Any
@@ -76,7 +75,9 @@ def _get_supported_dimmer_entities(hass: HomeAssistant) -> list[str]:
     ent_reg = er.async_get(hass)
     entity_ids = []
     for entity in ent_reg.entities.values():
-        if entity.domain == "light" and (entity.platform == "kasa_smart_dim" or entity.platform == "zwave_js"):
+        if entity.domain == "light" and (
+            entity.platform == "kasa_smart_dim" or entity.platform == "zwave_js"
+        ):
             entity_ids.append(entity.entity_id)
     _LOGGER.debug(f"Found supported dimmer entities: {entity_ids}")
     return entity_ids
@@ -92,67 +93,76 @@ def get_main_schema(hass: HomeAssistant, config: dict[str, Any] | None = None) -
             vol.Required(
                 CONF_MORNING_START_TIME,
                 default=config.get(CONF_MORNING_START_TIME, DEFAULT_MORNING_START_TIME),
-                description="Time when morning brightness transition begins"
+                description="Time when morning brightness transition begins",
             ): selector.TimeSelector(),
             vol.Required(
                 CONF_MORNING_END_TIME,
                 default=config.get(CONF_MORNING_END_TIME, DEFAULT_MORNING_END_TIME),
-                description="Time when morning brightness transition ends (daytime begins)"
+                description="Time when morning brightness transition ends (daytime begins)",
             ): selector.TimeSelector(),
             vol.Required(
                 CONF_EVENING_START_TIME,
                 default=config.get(CONF_EVENING_START_TIME, DEFAULT_EVENING_START_TIME),
-                description="Time when evening brightness transition begins (daytime ends)"
+                description="Time when evening brightness transition begins (daytime ends)",
             ): selector.TimeSelector(),
             vol.Required(
                 CONF_EVENING_END_TIME,
                 default=config.get(CONF_EVENING_END_TIME, DEFAULT_EVENING_END_TIME),
-                description="Time when evening brightness transition ends"
+                description="Time when evening brightness transition ends",
             ): selector.TimeSelector(),
             vol.Required(
                 CONF_NIGHT_BRIGHTNESS,
                 default=config.get(CONF_NIGHT_BRIGHTNESS, DEFAULT_NIGHT_BRIGHTNESS),
-                description="Brightness level during nighttime hours (0-100%)"
+                description="Brightness level during nighttime hours (0-100%)",
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=100, mode="slider", step=1),
             ),
             vol.Required(
                 CONF_DAY_BRIGHTNESS,
                 default=config.get(CONF_DAY_BRIGHTNESS, DEFAULT_DAY_BRIGHTNESS),
-                description="Brightness level during daytime hours (0-100%)"
+                description="Brightness level during daytime hours (0-100%)",
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=100, mode="slider", step=1),
             ),
             vol.Required(
                 CONF_MANUAL_OVERRIDE_THRESHOLD,
-                default=config.get(CONF_MANUAL_OVERRIDE_THRESHOLD, DEFAULT_MANUAL_OVERRIDE_THRESHOLD),
-                description="Minimum brightness change that triggers manual override detection"
+                default=config.get(
+                    CONF_MANUAL_OVERRIDE_THRESHOLD, DEFAULT_MANUAL_OVERRIDE_THRESHOLD
+                ),
+                description="Minimum brightness change that triggers manual override detection",
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=2, max=20, mode="slider", step=1),
             ),
             vol.Optional(
                 CONF_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD,
-                default=config.get(CONF_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD, DEFAULT_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD),
-                description="Minimum color temperature change that triggers manual override detection"
+                default=config.get(
+                    CONF_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD,
+                    DEFAULT_COLOR_TEMP_MANUAL_OVERRIDE_THRESHOLD,
+                ),
+                description="Minimum color temperature change that triggers manual override detection",
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=50, max=500, mode="slider", step=10),
             ),
             vol.Required(
                 CONF_LIGHTS,
                 default=config.get(CONF_LIGHTS, []),
-                description="Select the lights to control with circadian lighting"
+                description="Select the lights to control with circadian lighting",
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="light", multiple=True),
             ),
             vol.Optional(
                 CONF_MORNING_OVERRIDE_CLEAR_TIME,
-                default=config.get(CONF_MORNING_OVERRIDE_CLEAR_TIME, DEFAULT_MORNING_OVERRIDE_CLEAR_TIME),
-                description="Time when morning manual overrides automatically expire"
+                default=config.get(
+                    CONF_MORNING_OVERRIDE_CLEAR_TIME, DEFAULT_MORNING_OVERRIDE_CLEAR_TIME
+                ),
+                description="Time when morning manual overrides automatically expire",
             ): selector.TimeSelector(),
             vol.Optional(
                 CONF_EVENING_OVERRIDE_CLEAR_TIME,
-                default=config.get(CONF_EVENING_OVERRIDE_CLEAR_TIME, DEFAULT_EVENING_OVERRIDE_CLEAR_TIME),
-                description="Time when evening manual overrides automatically expire"
+                default=config.get(
+                    CONF_EVENING_OVERRIDE_CLEAR_TIME, DEFAULT_EVENING_OVERRIDE_CLEAR_TIME
+                ),
+                description="Time when evening manual overrides automatically expire",
             ): selector.TimeSelector(),
         }
     )
@@ -169,14 +179,18 @@ def _get_color_time_schema(
     # Determine the transition name for descriptions
     # For morning_end and evening_start, when sun sync, auto-use sunrise/sunset
     include_sun_event = not (
-        ("morning_start" in type_key or "morning_end" in type_key or "evening_start" in type_key or "evening_end" in type_key) and
-        config.get(type_key) == CONF_COLOR_TIME_TYPE_SUN
+        (
+            "morning_start" in type_key
+            or "morning_end" in type_key
+            or "evening_start" in type_key
+            or "evening_end" in type_key
+        )
+        and config.get(type_key) == CONF_COLOR_TIME_TYPE_SUN
     )
 
     schema = {
         vol.Required(
-            type_key,
-            default=config.get(type_key, CONF_COLOR_TIME_TYPE_SYNC)
+            type_key, default=config.get(type_key, CONF_COLOR_TIME_TYPE_SYNC)
         ): selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
@@ -187,19 +201,18 @@ def _get_color_time_schema(
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
         ),
-        vol.Optional(
-            fixed_time_key,
-            description="Fixed time"
-        ): selector.TimeSelector(),
+        vol.Optional(fixed_time_key, description="Fixed time"): selector.TimeSelector(),
     }
 
     # Only show sun_event selector for morning_end and evening_start
-    if include_sun_event and type_key in [CONF_COLOR_MORNING_END_TYPE, CONF_COLOR_EVENING_START_TYPE]:
+    if include_sun_event and type_key in [
+        CONF_COLOR_MORNING_END_TYPE,
+        CONF_COLOR_EVENING_START_TYPE,
+    ]:
         default_sun_event = "sunrise" if "morning" in type_key else "sunset"
-        schema[vol.Optional(
-            sun_event_key,
-            default=config.get(sun_event_key, default_sun_event)
-        )] = selector.SelectSelector(
+        schema[
+            vol.Optional(sun_event_key, default=config.get(sun_event_key, default_sun_event))
+        ] = selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
                     {"value": "sunrise", "label": "Sunrise"},
@@ -209,7 +222,9 @@ def _get_color_time_schema(
             )
         )
 
-    schema[vol.Optional(sun_offset_key, description="Offset from sun event")] = selector.DurationSelector()
+    schema[vol.Optional(sun_offset_key, description="Offset from sun event")] = (
+        selector.DurationSelector()
+    )
 
     return schema
 
@@ -223,12 +238,14 @@ def get_color_schema(hass: HomeAssistant, config: dict[str, Any] | None = None) 
         vol.Required(
             CONF_COLOR_TEMP_ENABLED,
             default=config.get(CONF_COLOR_TEMP_ENABLED, DEFAULT_COLOR_TEMP_ENABLED),
-            description="Enable color temperature adjustments"
+            description="Enable color temperature adjustments",
         ): selector.BooleanSelector(),
         vol.Required(
             CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN,
-            default=config.get(CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN, DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN),
-            description="Color temperature at sunrise and sunset"
+            default=config.get(
+                CONF_SUNRISE_SUNSET_COLOR_TEMP_KELVIN, DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN
+            ),
+            description="Color temperature at sunrise and sunset",
         ): selector.ColorTempSelector(
             selector.ColorTempSelectorConfig(
                 unit="kelvin",
@@ -239,7 +256,7 @@ def get_color_schema(hass: HomeAssistant, config: dict[str, Any] | None = None) 
         vol.Required(
             CONF_MIDDAY_COLOR_TEMP_KELVIN,
             default=config.get(CONF_MIDDAY_COLOR_TEMP_KELVIN, DEFAULT_MIDDAY_COLOR_TEMP_KELVIN),
-            description="Color temperature during midday"
+            description="Color temperature during midday",
         ): selector.ColorTempSelector(
             selector.ColorTempSelectorConfig(
                 unit="kelvin",
@@ -250,7 +267,7 @@ def get_color_schema(hass: HomeAssistant, config: dict[str, Any] | None = None) 
         vol.Required(
             CONF_NIGHT_COLOR_TEMP_KELVIN,
             default=config.get(CONF_NIGHT_COLOR_TEMP_KELVIN, DEFAULT_NIGHT_COLOR_TEMP_KELVIN),
-            description="Color temperature during nighttime"
+            description="Color temperature during nighttime",
         ): selector.ColorTempSelector(
             selector.ColorTempSelectorConfig(
                 unit="kelvin",
@@ -261,7 +278,7 @@ def get_color_schema(hass: HomeAssistant, config: dict[str, Any] | None = None) 
         vol.Required(
             CONF_COLOR_CURVE_TYPE,
             default=config.get(CONF_COLOR_CURVE_TYPE, DEFAULT_COLOR_CURVE_TYPE),
-            description="Interpolation curve for transitions"
+            description="Interpolation curve for transitions",
         ): selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
@@ -313,7 +330,9 @@ def get_color_schema(hass: HomeAssistant, config: dict[str, Any] | None = None) 
     return vol.Schema(schema)
 
 
-def _process_color_time_input(config: dict[str, Any], input_data: dict[str, Any], prefix: str) -> None:
+def _process_color_time_input(
+    config: dict[str, Any], input_data: dict[str, Any], prefix: str
+) -> None:
     """Process the color time input from the user and update the config.
 
     Args:
@@ -359,10 +378,12 @@ def _process_color_time_input(config: dict[str, Any], input_data: dict[str, Any]
             # Home Assistant's DurationSelector returns a dict with `days`, `hours`,
             # `minutes`, `seconds`. A negative duration is indicated by a negative
             # value for one of these keys.
-            total_seconds = sun_offset.get("seconds", 0) + \
-                            sun_offset.get("minutes", 0) * 60 + \
-                            sun_offset.get("hours", 0) * 3600 + \
-                            sun_offset.get("days", 0) * 86400
+            total_seconds = (
+                sun_offset.get("seconds", 0)
+                + sun_offset.get("minutes", 0) * 60
+                + sun_offset.get("hours", 0) * 3600
+                + sun_offset.get("days", 0) * 86400
+            )
 
             if total_seconds == 0:
                 config[time_str_key] = sun_event
@@ -401,10 +422,7 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
 
             schema = get_main_schema(self.hass, self.temp_config)
             _LOGGER.debug("Options init schema created successfully")
-            return self.async_show_form(
-                step_id="init",
-                data_schema=schema
-            )
+            return self.async_show_form(step_id="init", data_schema=schema)
         except Exception as e:
             _LOGGER.error(f"Error in options async_step_init: {e}", exc_info=True)
             raise
@@ -423,19 +441,29 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
 
                 # Clean up temporary keys
                 keys_to_remove = [
-                    CONF_COLOR_MORNING_START_TYPE, CONF_COLOR_MORNING_START_FIXED_TIME,
-                    CONF_COLOR_MORNING_START_SUN_EVENT, CONF_COLOR_MORNING_START_SUN_OFFSET,
-                    CONF_COLOR_MORNING_END_TYPE, CONF_COLOR_MORNING_END_FIXED_TIME,
-                    CONF_COLOR_MORNING_END_SUN_EVENT, CONF_COLOR_MORNING_END_SUN_OFFSET,
-                    CONF_COLOR_EVENING_START_TYPE, CONF_COLOR_EVENING_START_FIXED_TIME,
-                    CONF_COLOR_EVENING_START_SUN_EVENT, CONF_COLOR_EVENING_START_SUN_OFFSET,
-                    CONF_COLOR_EVENING_END_TYPE, CONF_COLOR_EVENING_END_FIXED_TIME,
-                    CONF_COLOR_EVENING_END_SUN_EVENT, CONF_COLOR_EVENING_END_SUN_OFFSET,
+                    CONF_COLOR_MORNING_START_TYPE,
+                    CONF_COLOR_MORNING_START_FIXED_TIME,
+                    CONF_COLOR_MORNING_START_SUN_EVENT,
+                    CONF_COLOR_MORNING_START_SUN_OFFSET,
+                    CONF_COLOR_MORNING_END_TYPE,
+                    CONF_COLOR_MORNING_END_FIXED_TIME,
+                    CONF_COLOR_MORNING_END_SUN_EVENT,
+                    CONF_COLOR_MORNING_END_SUN_OFFSET,
+                    CONF_COLOR_EVENING_START_TYPE,
+                    CONF_COLOR_EVENING_START_FIXED_TIME,
+                    CONF_COLOR_EVENING_START_SUN_EVENT,
+                    CONF_COLOR_EVENING_START_SUN_OFFSET,
+                    CONF_COLOR_EVENING_END_TYPE,
+                    CONF_COLOR_EVENING_END_FIXED_TIME,
+                    CONF_COLOR_EVENING_END_SUN_EVENT,
+                    CONF_COLOR_EVENING_END_SUN_OFFSET,
                 ]
                 for key in keys_to_remove:
                     self.temp_config.pop(key, None)
 
-                self.temp_config["morning_start_brightness"] = self.temp_config[CONF_NIGHT_BRIGHTNESS]
+                self.temp_config["morning_start_brightness"] = self.temp_config[
+                    CONF_NIGHT_BRIGHTNESS
+                ]
                 self.temp_config["evening_end_brightness"] = self.temp_config[CONF_NIGHT_BRIGHTNESS]
                 self.temp_config["morning_end_brightness"] = self.temp_config[CONF_DAY_BRIGHTNESS]
                 self.temp_config["evening_start_brightness"] = self.temp_config[CONF_DAY_BRIGHTNESS]
@@ -443,9 +471,15 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
                 return self.async_abort_entry_with_options(self.temp_config)
 
             # Ensure defaults are set
-            self.temp_config.setdefault("sunrise_sunset_color_temp_kelvin", DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN)
-            self.temp_config.setdefault(CONF_MIDDAY_COLOR_TEMP_KELVIN, DEFAULT_MIDDAY_COLOR_TEMP_KELVIN)
-            self.temp_config.setdefault(CONF_NIGHT_COLOR_TEMP_KELVIN, DEFAULT_NIGHT_COLOR_TEMP_KELVIN)
+            self.temp_config.setdefault(
+                "sunrise_sunset_color_temp_kelvin", DEFAULT_SUNRISE_SUNSET_COLOR_TEMP_KELVIN
+            )
+            self.temp_config.setdefault(
+                CONF_MIDDAY_COLOR_TEMP_KELVIN, DEFAULT_MIDDAY_COLOR_TEMP_KELVIN
+            )
+            self.temp_config.setdefault(
+                CONF_NIGHT_COLOR_TEMP_KELVIN, DEFAULT_NIGHT_COLOR_TEMP_KELVIN
+            )
             self.temp_config.setdefault(CONF_COLOR_CURVE_TYPE, DEFAULT_COLOR_CURVE_TYPE)
             self.temp_config.setdefault(CONF_COLOR_MORNING_START_TIME, "sync")
             self.temp_config.setdefault(CONF_COLOR_MORNING_END_TIME, "06:00:00")
@@ -459,10 +493,18 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
             self.temp_config.setdefault(CONF_COLOR_EVENING_START_SUN_EVENT, "sunset")
 
             # Set defaults for sun offsets
-            self.temp_config.setdefault(CONF_COLOR_MORNING_START_SUN_OFFSET, {"hours": 0, "minutes": 0, "seconds": 0})
-            self.temp_config.setdefault(CONF_COLOR_MORNING_END_SUN_OFFSET, {"hours": 0, "minutes": 0, "seconds": 0})
-            self.temp_config.setdefault(CONF_COLOR_EVENING_START_SUN_OFFSET, {"hours": 0, "minutes": 0, "seconds": 0})
-            self.temp_config.setdefault(CONF_COLOR_EVENING_END_SUN_OFFSET, {"hours": 0, "minutes": 0, "seconds": 0})
+            self.temp_config.setdefault(
+                CONF_COLOR_MORNING_START_SUN_OFFSET, {"hours": 0, "minutes": 0, "seconds": 0}
+            )
+            self.temp_config.setdefault(
+                CONF_COLOR_MORNING_END_SUN_OFFSET, {"hours": 0, "minutes": 0, "seconds": 0}
+            )
+            self.temp_config.setdefault(
+                CONF_COLOR_EVENING_START_SUN_OFFSET, {"hours": 0, "minutes": 0, "seconds": 0}
+            )
+            self.temp_config.setdefault(
+                CONF_COLOR_EVENING_END_SUN_OFFSET, {"hours": 0, "minutes": 0, "seconds": 0}
+            )
 
             # Set sun event defaults from saved time_str
             if self.temp_config.get(CONF_COLOR_MORNING_END_TIME) == "sunrise":
@@ -485,13 +527,21 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
                     if len(parts) >= 3:
                         offset_str = parts[2]
                         try:
-                            parsed_offset = datetime.timedelta(hours=int(offset_str.split(":")[0]), minutes=int(offset_str.split(":")[1]), seconds=int(offset_str.split(":")[2]))
+                            parsed_offset = datetime.timedelta(
+                                hours=int(offset_str.split(":")[0]),
+                                minutes=int(offset_str.split(":")[1]),
+                                seconds=int(offset_str.split(":")[2]),
+                            )
                             total_seconds = int(parsed_offset.total_seconds())
                             abs_seconds = abs(total_seconds)
                             hours = abs_seconds // 3600
                             minutes = (abs_seconds % 3600) // 60
                             seconds = abs_seconds % 60
-                            self.temp_config[sun_offset_key] = {"hours": hours, "minutes": minutes, "seconds": seconds}
+                            self.temp_config[sun_offset_key] = {
+                                "hours": hours,
+                                "minutes": minutes,
+                                "seconds": seconds,
+                            }
                         except Exception as e:
                             _LOGGER.debug(f"Failed to parse offset from {time_str}: {e}")
 
@@ -503,17 +553,18 @@ class SmartCircadianLightingOptionsFlow(config_entries.OptionsFlow):
 
             # Set fixed time defaults
             if self.temp_config.get(CONF_COLOR_MORNING_END_TYPE) == CONF_COLOR_TIME_TYPE_FIXED:
-                self.temp_config[CONF_COLOR_MORNING_END_FIXED_TIME] = self.temp_config.get(CONF_COLOR_MORNING_END_TIME)
+                self.temp_config[CONF_COLOR_MORNING_END_FIXED_TIME] = self.temp_config.get(
+                    CONF_COLOR_MORNING_END_TIME
+                )
 
             if self.temp_config.get(CONF_COLOR_EVENING_START_TYPE) == CONF_COLOR_TIME_TYPE_FIXED:
-                self.temp_config[CONF_COLOR_EVENING_START_FIXED_TIME] = self.temp_config.get(CONF_COLOR_EVENING_START_TIME)
+                self.temp_config[CONF_COLOR_EVENING_START_FIXED_TIME] = self.temp_config.get(
+                    CONF_COLOR_EVENING_START_TIME
+                )
 
             schema = get_color_schema(self.hass, self.temp_config)
             _LOGGER.debug("Options color schema created successfully")
-            return self.async_show_form(
-                step_id="color",
-                data_schema=schema
-            )
+            return self.async_show_form(step_id="color", data_schema=schema)
         except Exception as e:
             _LOGGER.error(f"Error in options async_step_color: {e}", exc_info=True)
             raise
@@ -553,9 +604,7 @@ class SmartCircadianLightingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN)
             schema = get_main_schema(self.hass, config_with_defaults)
             _LOGGER.debug("Schema created successfully")
             return self.async_show_form(
-                step_id="user",
-                data_schema=schema,
-                errors=errors if errors else None
+                step_id="user", data_schema=schema, errors=errors if errors else None
             )
         except Exception as e:
             _LOGGER.error(f"Error in async_step_user: {e}", exc_info=True)
@@ -584,31 +633,47 @@ class SmartCircadianLightingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN)
 
                     # Clean up temporary keys
                     keys_to_remove = [
-                        CONF_COLOR_MORNING_START_TYPE, CONF_COLOR_MORNING_START_FIXED_TIME,
-                        CONF_COLOR_MORNING_START_SUN_EVENT, CONF_COLOR_MORNING_START_SUN_OFFSET,
-                        CONF_COLOR_MORNING_END_TYPE, CONF_COLOR_MORNING_END_FIXED_TIME,
-                        CONF_COLOR_MORNING_END_SUN_EVENT, CONF_COLOR_MORNING_END_SUN_OFFSET,
-                        CONF_COLOR_EVENING_START_TYPE, CONF_COLOR_EVENING_START_FIXED_TIME,
-                        CONF_COLOR_EVENING_START_SUN_EVENT, CONF_COLOR_EVENING_START_SUN_OFFSET,
-                        CONF_COLOR_EVENING_END_TYPE, CONF_COLOR_EVENING_END_FIXED_TIME,
-                        CONF_COLOR_EVENING_END_SUN_EVENT, CONF_COLOR_EVENING_END_SUN_OFFSET,
+                        CONF_COLOR_MORNING_START_TYPE,
+                        CONF_COLOR_MORNING_START_FIXED_TIME,
+                        CONF_COLOR_MORNING_START_SUN_EVENT,
+                        CONF_COLOR_MORNING_START_SUN_OFFSET,
+                        CONF_COLOR_MORNING_END_TYPE,
+                        CONF_COLOR_MORNING_END_FIXED_TIME,
+                        CONF_COLOR_MORNING_END_SUN_EVENT,
+                        CONF_COLOR_MORNING_END_SUN_OFFSET,
+                        CONF_COLOR_EVENING_START_TYPE,
+                        CONF_COLOR_EVENING_START_FIXED_TIME,
+                        CONF_COLOR_EVENING_START_SUN_EVENT,
+                        CONF_COLOR_EVENING_START_SUN_OFFSET,
+                        CONF_COLOR_EVENING_END_TYPE,
+                        CONF_COLOR_EVENING_END_FIXED_TIME,
+                        CONF_COLOR_EVENING_END_SUN_EVENT,
+                        CONF_COLOR_EVENING_END_SUN_OFFSET,
                     ]
                     for key in keys_to_remove:
                         self.temp_config.pop(key, None)
 
-                    self.temp_config["morning_start_brightness"] = self.temp_config[CONF_NIGHT_BRIGHTNESS]
-                    self.temp_config["evening_end_brightness"] = self.temp_config[CONF_NIGHT_BRIGHTNESS]
-                    self.temp_config["morning_end_brightness"] = self.temp_config[CONF_DAY_BRIGHTNESS]
-                    self.temp_config["evening_start_brightness"] = self.temp_config[CONF_DAY_BRIGHTNESS]
+                    self.temp_config["morning_start_brightness"] = self.temp_config[
+                        CONF_NIGHT_BRIGHTNESS
+                    ]
+                    self.temp_config["evening_end_brightness"] = self.temp_config[
+                        CONF_NIGHT_BRIGHTNESS
+                    ]
+                    self.temp_config["morning_end_brightness"] = self.temp_config[
+                        CONF_DAY_BRIGHTNESS
+                    ]
+                    self.temp_config["evening_start_brightness"] = self.temp_config[
+                        CONF_DAY_BRIGHTNESS
+                    ]
                     _LOGGER.debug(f"Creating entry with config: {self.temp_config}")
-                    return self.async_create_entry(title="Smart Circadian Lighting", data=self.temp_config)
+                    return self.async_create_entry(
+                        title="Smart Circadian Lighting", data=self.temp_config
+                    )
 
             schema = get_color_schema(self.hass, self.temp_config)
             _LOGGER.debug("Color schema created successfully")
             return self.async_show_form(
-                step_id="color",
-                data_schema=schema,
-                errors=errors if errors else None
+                step_id="color", data_schema=schema, errors=errors if errors else None
             )
         except Exception as e:
             _LOGGER.error(f"Error in async_step_color: {e}", exc_info=True)

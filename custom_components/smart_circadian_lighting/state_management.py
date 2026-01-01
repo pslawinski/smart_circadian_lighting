@@ -56,9 +56,7 @@ def check_override_expiration(light: CircadianLight) -> bool:
         # It's before the morning clear time, so the last clear was yesterday's evening
         last_clear_time = today_evening_clear - timedelta(days=1)
 
-    if light._override_timestamp.astimezone(dt_util.UTC) < last_clear_time.astimezone(
-        dt_util.UTC
-    ):
+    if light._override_timestamp.astimezone(dt_util.UTC) < last_clear_time.astimezone(dt_util.UTC):
         _LOGGER.debug(
             f"[{light._light_entity_id}] Override expired for {light.name}. Timestamp ({light._override_timestamp}) is before last clear time ({last_clear_time})"
         )
@@ -69,7 +67,7 @@ def check_override_expiration(light: CircadianLight) -> bool:
 
 def _calculate_next_clear_time(light: CircadianLight) -> datetime:
     """Calculate the next time when the override should be cleared."""
-    if hasattr(light, '_test_now'):
+    if hasattr(light, "_test_now"):
         now = light._test_now
     else:
         now = dt_util.now()
@@ -114,7 +112,9 @@ def _calculate_next_clear_time(light: CircadianLight) -> datetime:
 async def _async_clear_override_callback(light: CircadianLight) -> None:
     """Callback to clear an expired override."""
     if light._is_overridden:
-        _LOGGER.info(f"[{light._light_entity_id}] Scheduled override expiration triggered for {light.name}")
+        _LOGGER.info(
+            f"[{light._light_entity_id}] Scheduled override expiration triggered for {light.name}"
+        )
         light._is_overridden = False
         light._expiration_callback_handle = None
         await async_save_override_state(light)
@@ -124,8 +124,10 @@ async def _async_clear_override_callback(light: CircadianLight) -> None:
 
 def _create_clear_override_callback(light: CircadianLight):
     """Create a callback function that clears override for the specific light."""
+
     async def callback():
         await _async_clear_override_callback(light)
+
     return callback
 
 
@@ -136,12 +138,12 @@ async def async_save_override_state(light: CircadianLight) -> None:
     saved_states[light._light_entity_id] = {
         "is_overridden": light._is_overridden,
         "is_in_direction_override": getattr(light, "_is_in_direction_override", False),
-        "timestamp": light._override_timestamp.isoformat()
-        if light._override_timestamp
-        else None,
+        "timestamp": light._override_timestamp.isoformat() if light._override_timestamp else None,
     }
     await light._store.async_save(saved_states)
-    _LOGGER.debug(f"[{light._light_entity_id}] Saved override state for {light.name}: {light._is_overridden} (in_direction: {getattr(light, '_is_in_direction_override', False)})")
+    _LOGGER.debug(
+        f"[{light._light_entity_id}] Saved override state for {light.name}: {light._is_overridden} (in_direction: {getattr(light, '_is_in_direction_override', False)})"
+    )
 
     # Schedule or cancel expiration callback based on override state
     if light._is_overridden:
@@ -152,15 +154,19 @@ async def async_save_override_state(light: CircadianLight) -> None:
 
         # Schedule new callback for next clear time
         next_clear_time = _calculate_next_clear_time(light)
-        now = light._test_now if hasattr(light, '_test_now') else dt_util.now()
+        now = light._test_now if hasattr(light, "_test_now") else dt_util.now()
         delay_seconds = (next_clear_time - now).total_seconds()
         if delay_seconds > 0:
-            _LOGGER.debug(f"[{light._light_entity_id}] Scheduling override expiration for {light.name} in {delay_seconds} seconds (at {next_clear_time})")
+            _LOGGER.debug(
+                f"[{light._light_entity_id}] Scheduling override expiration for {light.name} in {delay_seconds} seconds (at {next_clear_time})"
+            )
             light._expiration_callback_handle = async_call_later(
                 light.hass, delay_seconds, _create_clear_override_callback(light)
             )
         else:
-            _LOGGER.warning(f"[{light._light_entity_id}] Calculated negative delay for override expiration, clearing immediately")
+            _LOGGER.warning(
+                f"[{light._light_entity_id}] Calculated negative delay for override expiration, clearing immediately"
+            )
             await _async_clear_override_callback(light)
     else:
         # Clear any existing callback when override is removed
@@ -188,7 +194,9 @@ async def async_load_override_state(light: CircadianLight) -> None:
 
         # Check if the loaded override has expired
         if light._is_overridden and check_override_expiration(light):
-            _LOGGER.info(f"[{light._light_entity_id}] Restored override for {light.name} has expired. Clearing.")
+            _LOGGER.info(
+                f"[{light._light_entity_id}] Restored override for {light.name} has expired. Clearing."
+            )
             light._is_overridden = False
             light._override_timestamp = None
             await async_save_override_state(light)
@@ -215,7 +223,7 @@ async def _check_for_manual_override(
     old_color_temp: int | None = None,
     new_color_temp: int | None = None,
     now: datetime = None,
-    was_online: bool = True
+    was_online: bool = True,
 ) -> None:
     """Check for a manual brightness or color temperature change that should trigger an override."""
     from . import circadian_logic  # Defer import to avoid circular dependency
@@ -230,9 +238,7 @@ async def _check_for_manual_override(
     # Override detection is only active during transitions
     is_transition = circadian_logic.is_morning_transition(
         now, light._temp_transition_override, light._config
-    ) or circadian_logic.is_evening_transition(
-        now, light._temp_transition_override, light._config
-    )
+    ) or circadian_logic.is_evening_transition(now, light._temp_transition_override, light._config)
     if not is_transition:
         return
 
@@ -246,8 +252,13 @@ async def _check_for_manual_override(
     color_temp_override = False
 
     # Check brightness override
-    if (new_brightness is not None and old_brightness is not None and light._brightness is not None and
-        isinstance(new_brightness, int) and isinstance(old_brightness, int)):
+    if (
+        new_brightness is not None
+        and old_brightness is not None
+        and light._brightness is not None
+        and isinstance(new_brightness, int)
+        and isinstance(old_brightness, int)
+    ):
         brightness_diff = new_brightness - old_brightness
         max_error = light.max_quantization_error
 
@@ -256,12 +267,16 @@ async def _check_for_manual_override(
         # accounting for quantization error.
         if is_morning and brightness_diff < 0:  # Dimming during morning transition
             boundary = light._brightness - light._manual_override_threshold
-            _LOGGER.debug(f"Morning brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, max_error={max_error}, diff={brightness_diff}")
+            _LOGGER.debug(
+                f"Morning brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, max_error={max_error}, diff={brightness_diff}"
+            )
             if new_brightness < boundary + max_error:
                 brightness_override = True
         elif not is_morning and brightness_diff > 0:  # Brightening during evening transition
             boundary = light._brightness + light._manual_override_threshold
-            _LOGGER.debug(f"Evening brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, max_error={max_error}, diff={brightness_diff}")
+            _LOGGER.debug(
+                f"Evening brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, max_error={max_error}, diff={brightness_diff}"
+            )
             if new_brightness >= boundary - max_error:
                 brightness_override = True
         # Z-Wave specific in-direction override: always captured during transition if substantial
@@ -270,6 +285,7 @@ async def _check_for_manual_override(
             is_zwave = False
             try:
                 from homeassistant.helpers import entity_registry as er
+
                 entity_registry = er.async_get(light._hass)
                 entity_entry = entity_registry.async_get(light._light_entity_id)
                 is_zwave = entity_entry and entity_entry.platform == "zwave_js"
@@ -282,7 +298,9 @@ async def _check_for_manual_override(
                     if abs(brightness_diff) > light._manual_override_threshold:
                         brightness_override = True
                         is_in_direction = True
-                        _LOGGER.debug(f"{'Morning' if is_morning else 'Evening'} Z-Wave in-direction override detected: new={new_brightness}, old={old_brightness}, diff={brightness_diff}")
+                        _LOGGER.debug(
+                            f"{'Morning' if is_morning else 'Evening'} Z-Wave in-direction override detected: new={new_brightness}, old={old_brightness}, diff={brightness_diff}"
+                        )
 
         # Soft override detection: user adjusts in the same direction as the transition at transition start
         if not brightness_override and new_brightness is not None and old_brightness is not None:
@@ -297,23 +315,35 @@ async def _check_for_manual_override(
             current_time = now.time()
 
             if is_morning:
-                progress = circadian_logic.get_progress(current_time, morning_start_time, morning_end_time)
+                progress = circadian_logic.get_progress(
+                    current_time, morning_start_time, morning_end_time
+                )
                 # Soft override: brightening at transition start (adjusting in direction of transition)
-                if brightness_diff > 0 and progress < 0.01:  # Within first 1% of transition duration
+                if (
+                    brightness_diff > 0 and progress < 0.01
+                ):  # Within first 1% of transition duration
                     # Check if the adjustment is substantial (crosses threshold)
                     if new_brightness > old_brightness + light._manual_override_threshold:
                         brightness_override = True
                         is_soft_override = True
-                        _LOGGER.debug(f"Morning soft override check: new={new_brightness}, old={old_brightness}, progress={progress}, diff={brightness_diff}, threshold={light._manual_override_threshold}")
+                        _LOGGER.debug(
+                            f"Morning soft override check: new={new_brightness}, old={old_brightness}, progress={progress}, diff={brightness_diff}, threshold={light._manual_override_threshold}"
+                        )
             else:
-                progress = circadian_logic.get_progress(current_time, evening_start_time, evening_end_time)
+                progress = circadian_logic.get_progress(
+                    current_time, evening_start_time, evening_end_time
+                )
                 # Soft override: dimming at transition start (adjusting in direction of transition)
-                if brightness_diff < 0 and progress < 0.01:  # Within first 1% of transition duration
+                if (
+                    brightness_diff < 0 and progress < 0.01
+                ):  # Within first 1% of transition duration
                     # Check if the adjustment is substantial (crosses threshold)
                     if new_brightness < old_brightness - light._manual_override_threshold:
                         brightness_override = True
                         is_soft_override = True
-                        _LOGGER.debug(f"Evening soft override check: new={new_brightness}, old={old_brightness}, progress={progress}, diff={brightness_diff}, threshold={light._manual_override_threshold}")
+                        _LOGGER.debug(
+                            f"Evening soft override check: new={new_brightness}, old={old_brightness}, progress={progress}, diff={brightness_diff}, threshold={light._manual_override_threshold}"
+                        )
 
         # Optimistic update filtering:
         # If the old_brightness is very close to our last-set target brightness,
@@ -322,12 +352,20 @@ async def _check_for_manual_override(
         # Skip this filtering for soft overrides, as they are intentional user adjustments.
         # Also skip when the light is coming back online (was_online=False), because
         # we need to detect manual adjustments that may have occurred while offline.
-        if brightness_override and not is_soft_override and was_online and abs(old_brightness - light._brightness) <= 5:
+        if (
+            brightness_override
+            and not is_soft_override
+            and was_online
+            and abs(old_brightness - light._brightness) <= 5
+        ):
             brightness_override = False
 
     # Check color temperature override
-    if (new_color_temp is not None and old_color_temp is not None and
-        light._color_temp_kelvin is not None):
+    if (
+        new_color_temp is not None
+        and old_color_temp is not None
+        and light._color_temp_kelvin is not None
+    ):
         color_temp_diff = abs(new_color_temp - old_color_temp)
         # Any significant color temperature change during transition is an override
         # since color temp transitions are gradual and user changes are intentional
@@ -360,7 +398,7 @@ async def _check_for_manual_override(
 
 async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None:
     """Handle state changes of the underlying entity."""
-    if event is None or not hasattr(event, 'data') or event.data is None:
+    if event is None or not hasattr(event, "data") or event.data is None:
         return
 
     now = dt_util.utcnow()
@@ -370,7 +408,9 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
     if not new_state:
         light._is_online = False
         light.async_write_ha_state()
-        _LOGGER.info(f"[{light._light_entity_id}] {light.name} has become unavailable (entity removed).")
+        _LOGGER.info(
+            f"[{light._light_entity_id}] {light.name} has become unavailable (entity removed)."
+        )
         return
 
     was_online = old_state is not None and old_state.state not in (
@@ -435,11 +475,15 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
 
     # If an override is active and hasn't expired, do nothing.
     if light._is_overridden and not check_override_expiration(light):
-        _LOGGER.debug(f"[{light._light_entity_id}] State change for {light.name} ignored: override is active.")
+        _LOGGER.debug(
+            f"[{light._light_entity_id}] State change for {light.name} ignored: override is active."
+        )
         return
 
     # Throttle event handling to avoid rapid firing
     if light._event_throttle_time and now < light._event_throttle_time:
         return
 
-    await _check_for_manual_override(light, old_brightness, new_brightness, old_color_temp, new_color_temp, now, was_online)
+    await _check_for_manual_override(
+        light, old_brightness, new_brightness, old_color_temp, new_color_temp, now, was_online
+    )

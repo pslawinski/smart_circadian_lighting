@@ -1,4 +1,5 @@
 """Button platform for Smart Circadian Lighting."""
+
 from __future__ import annotations
 
 import logging
@@ -51,8 +52,10 @@ async def async_setup_entry(
 
     async_add_entities(buttons)
 
+
 class ClearOverrideButton(ButtonEntity):
     """Representation of a button to clear manual override for a single entity."""
+
     _attr_has_entity_name = True
 
     def __init__(self, circadian_light: CircadianLight) -> None:
@@ -79,6 +82,7 @@ class ClearOverrideButton(ButtonEntity):
 
 class ForceUpdateButton(ButtonEntity):
     """Representation of a button to force an update for a single entity."""
+
     _attr_has_entity_name = True
 
     def __init__(self, circadian_light: CircadianLight) -> None:
@@ -105,6 +109,7 @@ class ForceUpdateButton(ButtonEntity):
 
 class RunTestCycleButton(ButtonEntity):
     """Representation of a button to run a test cycle for a single entity."""
+
     _attr_has_entity_name = True
 
     def __init__(self, circadian_light: CircadianLight) -> None:
@@ -128,8 +133,10 @@ class RunTestCycleButton(ButtonEntity):
         _LOGGER.info(f"Run test cycle button pressed for {self._circadian_light.name}")
         await self._circadian_light.async_run_test_cycle(60)
 
+
 class CancelTestCycleButton(ButtonEntity):
     """Representation of a button to cancel a test cycle for a single entity."""
+
     _attr_has_entity_name = True
 
     def __init__(self, circadian_light: CircadianLight) -> None:
@@ -172,8 +179,10 @@ class CancelTestCycleButton(ButtonEntity):
         _LOGGER.info(f"Cancel test cycle button pressed for {self._circadian_light.name}")
         await self._circadian_light.async_cancel_test_cycle()
 
+
 class GlobalClearOverrideButton(ButtonEntity):
     """Representation of a button to clear manual override for all entities."""
+
     _attr_has_entity_name = True
 
     def __init__(self, config_entry: ConfigEntry, circadian_lights: list[CircadianLight]) -> None:
@@ -195,6 +204,7 @@ class GlobalClearOverrideButton(ButtonEntity):
 
 class GlobalForceUpdateButton(ButtonEntity):
     """Representation of a button to force an update for all entities."""
+
     _attr_has_entity_name = True
 
     def __init__(self, config_entry: ConfigEntry, circadian_lights: list[CircadianLight]) -> None:
@@ -216,6 +226,7 @@ class GlobalForceUpdateButton(ButtonEntity):
 
 class GlobalRunTestCycleButton(ButtonEntity):
     """Representation of a button to run a test cycle for all entities."""
+
     _attr_has_entity_name = True
 
     def __init__(self, config_entry: ConfigEntry, circadian_lights: list[CircadianLight]) -> None:
@@ -233,8 +244,10 @@ class GlobalRunTestCycleButton(ButtonEntity):
         _LOGGER.info("Global run test cycle button pressed")
         await testing.async_run_test_cycle_all(self._circadian_lights, 300)
 
+
 class GlobalCancelTestCycleButton(ButtonEntity):
     """Representation of a button to cancel a test cycle for all entities."""
+
     _attr_has_entity_name = True
 
     def __init__(self, config_entry: ConfigEntry, circadian_lights: list[CircadianLight]) -> None:
@@ -271,5 +284,3 @@ class GlobalCancelTestCycleButton(ButtonEntity):
         for light in self._circadian_lights:
             if light.is_testing:
                 await light.async_cancel_test_cycle()
-
-

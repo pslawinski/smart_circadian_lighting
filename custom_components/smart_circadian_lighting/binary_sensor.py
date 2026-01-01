@@ -10,6 +10,7 @@ from .const import DOMAIN, SIGNAL_OVERRIDE_STATE_CHANGED
 
 _LOGGER = logging.getLogger(__name__)
 
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -17,9 +18,7 @@ async def async_setup_entry(
     domain_data = hass.data[DOMAIN][entry.entry_id]
     circadian_lights = domain_data.get("circadian_lights", [])
 
-    sensors = [
-        CircadianOverrideSensor(light) for light in circadian_lights if light is not None
-    ]
+    sensors = [CircadianOverrideSensor(light) for light in circadian_lights if light is not None]
     if sensors:
         async_add_entities(sensors)
 
@@ -47,6 +46,6 @@ class CircadianOverrideSensor(BinarySensorEntity):
             async_dispatcher_connect(
                 self.hass,
                 f"{SIGNAL_OVERRIDE_STATE_CHANGED}_{self._light.entity_id}",
-                self.async_write_ha_state
+                self.async_write_ha_state,
             )
         )
