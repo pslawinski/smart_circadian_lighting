@@ -20,7 +20,7 @@ def mock_hass():
     hass.services.async_call = AsyncMock()
     hass.states = MagicMock()
     hass.states.get = MagicMock()
-    hass.states.async_set = AsyncMock()
+    hass.states.async_set = MagicMock()
     hass.data = {}
     return hass
 
@@ -225,3 +225,183 @@ async def test_soft_override_persistence_restore(mock_hass):
     assert light._is_overridden is True
     assert light._is_soft_override is True
     assert light._soft_override_value == 42
+
+@pytest.mark.asyncio
+async def test_zwave_manual_adjustment_before_transition(mock_hass):
+    """Test what happens when a Z-Wave light is adjusted BEFORE a transition starts."""
+    # Setup Z-Wave light
+    mock_ent_reg = MagicMock()
+    mock_entity_entry = MagicMock()
+    mock_entity_entry.platform = "zwave_js"
+    mock_entity_entry.device_id = "test_device_id"
+    mock_ent_reg.async_get.return_value = mock_entity_entry
+
+    mock_store = MagicMock()
+    mock_store.async_load = AsyncMock(return_value=None)
+    mock_store.async_save = AsyncMock()
+
+    entry = MockConfigEntry(domain=DOMAIN, unique_id="test")
+    config = {
+        "lights": ["light.test_zwave"],
+        "day_brightness": 100, # 255
+        "night_brightness": 10, # 26
+        "morning_start_time": "06:00:00",
+        "morning_end_time": "07:00:00",
+        "evening_start_time": "20:00:00",
+        "evening_end_time": "21:00:00",
+        "manual_override_threshold": 5,
+        "morning_override_clear_time": "08:00:00",
+        "evening_override_clear_time": "02:00:00",
+    }
+    
+    mock_hass.data[DOMAIN] = {entry.entry_id: {"manual_overrides_enabled": True}}
+
+    with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_ent_reg):
+        light = CircadianLight(mock_hass, "light.test_zwave", config, entry, mock_store)
+        light.hass = mock_hass
+        light.entity_id = "light.circadian_test"
+        light._first_update_done = True
+        
+        # Mock brightness refresh to return current value
+        light._get_current_brightness_with_refresh = AsyncMock(side_effect=lambda: light._last_reported_brightness)
+        
+        # 1. Adjust light at 5:00 PM (Before evening transition)
+        now_pre = datetime(2026, 1, 1, 17, 0, 0, tzinfo=None)
+        with patch("homeassistant.util.dt.utcnow", return_value=now_pre):
+            light._brightness = circadian_logic.calculate_brightness_for_time(
+                now_pre, {}, config, light._day_brightness_255, light._night_brightness_255
+            )
+            
+            light._manual_override_threshold = 5
+            
+            with patch("custom_components.smart_circadian_lighting.state_management.async_save_override_state", AsyncMock()):
+                event = MagicMock()
+                event.data = {
+                    "old_state": State("light.test_zwave", STATE_ON, {"brightness": 255}),
+                    "new_state": State("light.test_zwave", STATE_ON, {"brightness": 150})
+                }
+                await light._async_entity_state_changed(event)
+        
+        # Override is NOT detected yet because we are not in transition
+        assert light._is_overridden is False
+        
+        # 2. Transition starts at 8:30 PM.
+        # Detection should happen when we run the update.
+        now_transition = datetime(2026, 1, 1, 20, 30, 0, tzinfo=None)
+        mock_hass.services.async_call.reset_mock()
+        
+        # Ensure the physical entity is reported as 150
+        mock_hass.states.get.return_value = State("light.test_zwave", STATE_ON, {"brightness": 150})
+        light._last_reported_brightness = 150
+        
+        with patch("custom_components.smart_circadian_lighting.light.dt_util.now", return_value=now_transition):
+            await light._async_calculate_and_apply_brightness(force_update=True)
+            
+        assert light._is_overridden is True
+        assert light._is_soft_override is True
+        assert light._soft_override_value == 150
+        
+        expected_zwave_value = int(150 * 99 / 255) # 58
+        mock_hass.services.async_call.assert_any_call(
+            "zwave_js",
+            "set_config_parameter",
+            {
+                "device_id": "test_device_id",
+                "parameter": 18,
+                "value": expected_zwave_value,
+            }
+        )
+
+@pytest.mark.asyncio
+async def test_zwave_soft_override_persistence_through_toggle(mock_hass):
+    """Verify that Parameter 18 is updated even when the light is OFF, ensuring it comes back on at the overridden value."""
+    # Setup Z-Wave light
+    mock_ent_reg = MagicMock()
+    mock_entity_entry = MagicMock()
+    mock_entity_entry.platform = "zwave_js"
+    mock_entity_entry.device_id = "test_device_id"
+    mock_ent_reg.async_get.return_value = mock_entity_entry
+
+    mock_store = MagicMock()
+    mock_store.async_load = AsyncMock(return_value=None)
+    mock_store.async_save = AsyncMock()
+
+    entry = MockConfigEntry(domain=DOMAIN, unique_id="test")
+    config = {
+        "lights": ["light.test_zwave"],
+        "day_brightness": 100,
+        "night_brightness": 10,
+        "morning_start_time": "06:00:00",
+        "morning_end_time": "07:00:00",
+        "evening_start_time": "20:00:00",
+        "evening_end_time": "21:00:00",
+        "manual_override_threshold": 5,
+        "morning_override_clear_time": "08:00:00",
+        "evening_override_clear_time": "02:00:00",
+    }
+    
+    mock_hass.data[DOMAIN] = {entry.entry_id: {"manual_overrides_enabled": True}}
+
+    with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_ent_reg):
+        light = CircadianLight(mock_hass, "light.test_zwave", config, entry, mock_store)
+        light.hass = mock_hass
+        light.entity_id = "light.circadian_test"
+        light._first_update_done = True
+        
+        # 1. Trigger soft override during evening transition (dimming to 64/25%)
+        now = datetime(2026, 1, 1, 20, 30, 0)
+        light._brightness = 200 # Circadian setpoint
+        
+        with patch("custom_components.smart_circadian_lighting.state_management.async_save_override_state", AsyncMock()):
+            await state_management._check_for_manual_override(
+                light, old_brightness=200, new_brightness=64, old_color_temp=None, new_color_temp=None, now=now, was_online=True
+            )
+        
+        assert light._is_soft_override is True
+        assert light._soft_override_value == 64
+        
+        # Verify param 18 is set
+        mock_hass.services.async_call.reset_mock()
+        with patch("custom_components.smart_circadian_lighting.light.dt_util.now", return_value=now):
+            await light._async_calculate_and_apply_brightness(force_update=True)
+        
+        expected_zwave_value = int(64 * 99 / 255) # 24
+        mock_hass.services.async_call.assert_any_call(
+            "zwave_js", "set_config_parameter", {"device_id": "test_device_id", "parameter": 18, "value": expected_zwave_value}
+        )
+
+        # 2. Turn light OFF
+        mock_hass.states.get.return_value = State("light.test_zwave", STATE_OFF, {})
+        event = MagicMock()
+        event.data = {
+            "old_state": State("light.test_zwave", STATE_ON, {"brightness": 64}),
+            "new_state": State("light.test_zwave", STATE_OFF, {})
+        }
+        await light._async_entity_state_changed(event)
+        
+        # 3. Simulate time passing within transition while OFF
+        now_later = now + timedelta(minutes=15)
+        mock_hass.services.async_call.reset_mock()
+        with patch("custom_components.smart_circadian_lighting.light.dt_util.now", return_value=now_later):
+            # This would normally be called by the timer
+            await light._async_calculate_and_apply_brightness(force_update=True)
+            
+        # Verify Parameter 18 is STILL set to the pinned manual value (64) even though light is OFF
+        mock_hass.services.async_call.assert_any_call(
+            "zwave_js", "set_config_parameter", {"device_id": "test_device_id", "parameter": 18, "value": expected_zwave_value}
+        )
+        
+        # 4. Turn light ON
+        # It should come back at 64 because Parameter 18 was kept pinned.
+        mock_hass.states.get.return_value = State("light.test_zwave", STATE_ON, {"brightness": 64})
+        event = MagicMock()
+        event.data = {
+            "old_state": State("light.test_zwave", STATE_OFF, {}),
+            "new_state": State("light.test_zwave", STATE_ON, {"brightness": 64})
+        }
+        with patch.object(light, "_async_calculate_and_apply_brightness", AsyncMock()) as mock_update:
+            await light._async_entity_state_changed(event)
+            # Should skip update because it's a Z-Wave soft override
+            mock_update.assert_not_called()
+        
+        assert light._brightness == 64

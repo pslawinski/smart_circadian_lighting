@@ -251,6 +251,10 @@ async def _check_for_manual_override(
     is_morning = circadian_logic.is_morning_transition(
         now, light._temp_transition_override, light._config
     )
+    is_evening = circadian_logic.is_evening_transition(
+        now, light._temp_transition_override, light._config
+    )
+    print(f"DEBUG: now={now}, is_morning={is_morning}, is_evening={is_evening}")
 
     brightness_override = False
     is_soft_override = False
@@ -278,15 +282,24 @@ async def _check_for_manual_override(
             )
             if new_brightness < boundary + max_error:
                 brightness_override = True
-        elif not is_morning and brightness_diff > 0:  # Brightening during evening transition
+        elif is_evening and brightness_diff > 0:  # Brightening during evening transition
             boundary = light._brightness + light._manual_override_threshold
             _LOGGER.debug(
                 f"Evening brightness override check: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}, boundary={boundary}, max_error={max_error}, diff={brightness_diff}"
             )
             if new_brightness >= boundary - max_error:
                 brightness_override = True
+        elif not is_morning and not is_evening:
+            # Outside of active transitions, ANY manual adjustment that significantly
+            # deviates from the static circadian setpoint is a hard override.
+            if abs(new_brightness - light._brightness) > light._manual_override_threshold:
+                brightness_override = True
+                _LOGGER.debug(
+                    f"Static period brightness override detected: new={new_brightness}, setpoint={light._brightness}, threshold={light._manual_override_threshold}"
+                )
+
         # Z-Wave specific in-direction override: always captured during transition if substantial
-        elif not brightness_override:
+        if not brightness_override:
             # Check if we're dealing with a Z-Wave light
             is_zwave = False
             try:

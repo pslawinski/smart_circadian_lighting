@@ -73,7 +73,7 @@ def mock_hass():
     hass.services.async_call = AsyncMock()
     hass.states = MagicMock()
     hass.states.get = MagicMock()
-    hass.states.async_set = AsyncMock()
+    hass.states.async_set = MagicMock()
     hass.bus = MagicMock()
     hass.bus.async_fire = AsyncMock()
     hass.data = {}

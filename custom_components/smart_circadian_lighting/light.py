@@ -241,6 +241,7 @@ class CircadianLight(LightEntity):
     @callback
     async def _async_entity_state_changed(self, event) -> None:
         """Handle state changes of the underlying entity."""
+        print(f"DEBUG LIGHT EVENT: {self._light_entity_id}")
         new_state = event.data.get("new_state")
         if not new_state:
             return
@@ -619,6 +620,18 @@ class CircadianLight(LightEntity):
             )
             return
 
+        # Check for Z-Wave light to allow parameter updates even when light is off
+        entity_registry = er.async_get(self._hass)
+        entity_entry = entity_registry.async_get(self._light_entity_id)
+        is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
+
+        light_state = self._hass.states.get(self._light_entity_id)
+        is_physical_light_on = light_state and light_state.state == STATE_ON
+
+        # Determine if we should proceed with the full update (including light.turn_on)
+        # or if we should only perform Z-Wave parameter updates because the light is off.
+        skip_physical_update = not is_physical_light_on
+
         mode = self.circadian_mode
         is_currently_transition = mode in ["morning_transition", "evening_transition"]
 
@@ -631,15 +644,17 @@ class CircadianLight(LightEntity):
             ):
                 pass  # Skip override detection
             else:
-                light_state = self._hass.states.get(self._light_entity_id)
-                # Skip override detection for lights that are off (preloading)
-                if light_state and light_state.state == STATE_ON:
+                # For Z-Wave lights, we allow detection even if off (using last reported brightness)
+                # for other lights we only detect if they are ON.
+                if light_state and (is_physical_light_on or is_zwave_light):
                     current_brightness = await self._get_current_brightness_with_refresh()
                     current_color_temp = (
                         light_state.attributes.get(ATTR_COLOR_TEMP_KELVIN) if light_state else None
                     )
 
                     should_override = False
+                    is_soft_override = False
+                    soft_override_value = None
 
                     if mode == "evening_transition":
                         # Evening transition: check if ahead (dimmer than day or warmer than day)
@@ -649,8 +664,10 @@ class CircadianLight(LightEntity):
                             < self._day_brightness_255 - self._manual_override_threshold
                         ):
                             should_override = True
+                            is_soft_override = True
+                            soft_override_value = current_brightness
                             _LOGGER.debug(
-                                f"[{self._light_entity_id}] Evening transition start: current brightness {current_brightness} < day brightness {self._day_brightness_255} - threshold {self._manual_override_threshold}, marking as overridden"
+                                f"[{self._light_entity_id}] Evening transition start: current brightness {current_brightness} < day brightness {self._day_brightness_255} - threshold {self._manual_override_threshold}, marking as soft override"
                             )
                         if (
                             current_color_temp is not None
@@ -672,8 +689,10 @@ class CircadianLight(LightEntity):
                             > self._night_brightness_255 + self._manual_override_threshold
                         ):
                             should_override = True
+                            is_soft_override = True
+                            soft_override_value = current_brightness
                             _LOGGER.debug(
-                                f"[{self._light_entity_id}] Morning transition start: current brightness {current_brightness} > night brightness {self._night_brightness_255} + threshold {self._manual_override_threshold}, marking as overridden"
+                                f"[{self._light_entity_id}] Morning transition start: current brightness {current_brightness} > night brightness {self._night_brightness_255} + threshold {self._manual_override_threshold}, marking as soft override"
                             )
                         if (
                             current_color_temp is not None
@@ -689,11 +708,15 @@ class CircadianLight(LightEntity):
 
                     if should_override:
                         self._is_overridden = True
+                        self._is_soft_override = is_soft_override
+                        self._soft_override_value = soft_override_value
+                        if is_soft_override:
+                            self._brightness = soft_override_value
                         self._override_timestamp = now
                         await state_management.async_save_override_state(self)
                         override_just_detected = True
                         _LOGGER.info(
-                            f"[{self._light_entity_id}] Detected ahead adjustment at transition start, marked as overridden"
+                            f"[{self._light_entity_id}] Detected ahead adjustment at transition start, marked as {'soft ' if is_soft_override else ''}overridden"
                         )
 
         if is_currently_transition:
@@ -744,10 +767,6 @@ class CircadianLight(LightEntity):
 
         # For Z-Wave lights, always set parameter 18 regardless of override state
         # This allows users to "return to schedule" by turning lights off/on
-        entity_registry = er.async_get(self._hass)
-        entity_entry = entity_registry.async_get(self._light_entity_id)
-        is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
-
         if is_zwave_light and target_brightness_255 is not None:
             # Determine which value to use for parameter 18
             # - Soft override: Use the pinned manual value
@@ -770,26 +789,39 @@ class CircadianLight(LightEntity):
             zwave_brightness = int(value_to_use * 99 / 255)
             zwave_brightness = max(0, min(99, zwave_brightness))
 
-            try:
-                await asyncio.wait_for(
-                    self._hass.services.async_call(
-                        "zwave_js",
-                        "set_config_parameter",
-                        {
-                            "device_id": entity_entry.device_id,
-                            "parameter": 18,
-                            "value": zwave_brightness,
-                        },
-                    ),
-                    timeout=LIGHT_UPDATE_TIMEOUT,
-                )
-                _LOGGER.debug(
-                    f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {value_to_use})"
-                )
-            except TimeoutError:
-                _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
-            except HomeAssistantError as e:
-                _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
+            # Only update parameter if it has changed or we are forced
+            if force_update or getattr(self, "_last_zwave_param_18", None) != zwave_brightness:
+                try:
+                    await asyncio.wait_for(
+                        self._hass.services.async_call(
+                            "zwave_js",
+                            "set_config_parameter",
+                            {
+                                "device_id": entity_entry.device_id,
+                                "parameter": 18,
+                                "value": zwave_brightness,
+                            },
+                        ),
+                        timeout=LIGHT_UPDATE_TIMEOUT,
+                    )
+                    _LOGGER.debug(
+                        f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {value_to_use})"
+                    )
+                    self._last_zwave_param_18 = zwave_brightness
+                except TimeoutError:
+                    _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
+                except HomeAssistantError as e:
+                    _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
+
+        if skip_physical_update:
+            _LOGGER.debug(
+                f"[{self._light_entity_id}] Skipping physical light update for {self.name}: light is off."
+            )
+            # Still update internal state to match circadian for sensor consistency
+            if not self._is_overridden:
+                self._brightness = target_brightness_255
+            self.async_write_ha_state()
+            return
 
         if self._is_overridden:
             # Skip override clearing check if override was just detected in this cycle
