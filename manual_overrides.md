@@ -21,13 +21,21 @@ For example, if the current circadian brightness is 150, and a user dims the lig
 
 Adjusting brightness in the *same* direction as the transition does not trigger a "hard" manual override *during the transition* for most lights. However, there is special handling for Z-Wave lights and "soft adjustments" at the start of a transition.
 
-### Z-Wave Specific In-Direction Overrides
+### Z-Wave Specific In-Direction Overrides (Soft Overrides)
 
-For Z-Wave lights, any substantial manual adjustment (exceeding the `manual_override_threshold`) made **in the direction** of an active transition will trigger a specialized "in-direction override." 
+For Z-Wave lights, any substantial manual adjustment (exceeding the `manual_override_threshold`) made **in the direction** of an active transition will trigger a "soft override."
 
 - **Captured Value:** The system captures the manually set brightness.
-- **Z-Wave Parameter 18:** Instead of setting parameter 18 to the calculated circadian target, the system sets it to your **manual brightness value**.
-- **Persistence:** Unlike standard overrides, Z-Wave in-direction overrides **persist** even if the light is turned off and back on. This ensures the light returns to your manually set level until the circadian transition naturally "catches up" or a scheduled clear time is reached.
+- **Z-Wave Parameter 18:** The system sets parameter 18 to your **manual brightness value** and stops updating it. This "pins" the switch's local preloaded brightness to your manual setting.
+- **Persistence:** Soft overrides **persist** through power cycles. When the light is turned off and back on, the system skips the immediate circadian update, allowing the light to resume at the manual level preloaded in parameter 18.
+- **Catch-up:** The override remains active until the background circadian target "catches up" to your manual value, at which point normal control resumes.
+
+### Against-Direction Overrides (Hard Overrides)
+
+When a manual adjustment is made **against** the transition direction (e.g., dimming in the morning):
+
+- **Z-Wave Parameter 18:** Unlike soft overrides, the system **continues to update** parameter 18 with the background circadian target.
+- **Toggling:** Because parameter 18 tracks the circadian rhythm, turning the light off and then back on will cause it to "return to schedule" at the correct circadian brightness, effectively clearing the hard override.
 
 ### Soft Overrides (Transition Start)
 

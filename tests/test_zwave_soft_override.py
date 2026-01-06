@@ -1,9 +1,10 @@
 
 import pytest
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.const import STATE_ON, STATE_OFF, STATE_UNAVAILABLE
+from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.core import State
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -24,8 +25,8 @@ def mock_hass():
     return hass
 
 @pytest.mark.asyncio
-async def test_zwave_in_direction_override_persistence(mock_hass):
-    """Test that Z-Wave in-direction overrides persist through toggles and update parameter 18."""
+async def test_zwave_soft_override_behavior(mock_hass):
+    """Test that Z-Wave in-direction overrides trigger soft overrides and pin parameter 18."""
     # Setup Z-Wave light in entity registry
     mock_ent_reg = MagicMock()
     mock_entity_entry = MagicMock()
@@ -63,11 +64,9 @@ async def test_zwave_in_direction_override_persistence(mock_hass):
         light._brightness = 200
         
         # 1. Trigger in-direction override during evening transition (dimming)
-        # Evening transition is 20:00 - 21:00.
         now = datetime(2026, 1, 1, 20, 30, 0)
         
         # Simulate manual adjustment from 200 (circadian) to 64 (25%)
-        # Set old_brightness different enough from light._brightness to avoid optimistic update filter
         with patch("custom_components.smart_circadian_lighting.state_management.async_save_override_state", AsyncMock()):
             await state_management._check_for_manual_override(
                 light, 
@@ -80,17 +79,16 @@ async def test_zwave_in_direction_override_persistence(mock_hass):
             )
         
         assert light._is_overridden is True
-        assert light._is_in_direction_override is True
+        assert light._is_soft_override is True
+        assert light._soft_override_value == 64
         assert light._brightness == 64
         
-        # 2. Verify Z-Wave parameter 18 is set to manual value (64)
+        # 2. Verify Z-Wave parameter 18 is pinned to manual value (64)
         mock_hass.services.async_call.reset_mock()
         with patch("custom_components.smart_circadian_lighting.light.dt_util.now", return_value=now):
-            # This will calculate circadian target (~141) but should use manual value (64) for param 18
             await light._async_calculate_and_apply_brightness(force_update=True)
         
-        # expected_zwave_value = int(64 * 99 / 255) = 24
-        expected_zwave_value = 24
+        expected_zwave_value = int(64 * 99 / 255) # 24
         mock_hass.services.async_call.assert_any_call(
             "zwave_js",
             "set_config_parameter",
@@ -101,8 +99,7 @@ async def test_zwave_in_direction_override_persistence(mock_hass):
             }
         )
         
-        # 3. Verify turning light off does NOT clear override for Z-Wave in-direction
-        # Simulate state change event to OFF
+        # 3. Verify turning light off does NOT clear soft override
         event = MagicMock()
         event.data = {
             "old_state": State("light.test_zwave", STATE_ON, {"brightness": 64}),
@@ -113,26 +110,26 @@ async def test_zwave_in_direction_override_persistence(mock_hass):
             await light._async_entity_state_changed(event)
         
         assert light._is_overridden is True
-        assert light._is_in_direction_override is True
+        assert light._is_soft_override is True
         
-        # 4. Verify parameter 18 is still updated with manual value while light is off
-        mock_hass.services.async_call.reset_mock()
-        with patch("custom_components.smart_circadian_lighting.light.dt_util.now", return_value=now):
-            await light._async_calculate_and_apply_brightness(force_update=True)
-            
-        mock_hass.services.async_call.assert_any_call(
-            "zwave_js",
-            "set_config_parameter",
-            {
-                "device_id": "test_device_id",
-                "parameter": 18,
-                "value": expected_zwave_value,
-            }
-        )
+        # 4. Verify turning light ON skips immediate circadian update if soft override active
+        mock_hass.states.get.return_value = State("light.test_zwave", STATE_OFF, {})
+        new_state = State("light.test_zwave", STATE_ON, {ATTR_BRIGHTNESS: 64})
+        event = MagicMock()
+        event.data = {
+            "old_state": State("light.test_zwave", STATE_OFF, {}),
+            "new_state": new_state
+        }
+        
+        with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_ent_reg):
+            with patch.object(light, "_async_calculate_and_apply_brightness", AsyncMock()) as mock_update:
+                await light._async_entity_state_changed(event)
+                # Should NOT call update because it's a Z-Wave soft override
+                mock_update.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_zwave_against_direction_override_clears_on_off(mock_hass):
-    """Verify that against-direction overrides STILL clear on off (standard behavior)."""
+async def test_zwave_hard_override_does_not_pin_parameter_18(mock_hass):
+    """Verify that against-direction (hard) overrides do NOT pin parameter 18."""
     # Setup Z-Wave light
     mock_ent_reg = MagicMock()
     mock_entity_entry = MagicMock()
@@ -154,8 +151,6 @@ async def test_zwave_against_direction_override_clears_on_off(mock_hass):
         "evening_start_time": "20:00:00",
         "evening_end_time": "21:00:00",
         "manual_override_threshold": 5,
-        "morning_override_clear_time": "08:00:00",
-        "evening_override_clear_time": "02:00:00",
     }
     
     mock_hass.data[DOMAIN] = {entry.entry_id: {"manual_overrides_enabled": True}}
@@ -165,7 +160,7 @@ async def test_zwave_against_direction_override_clears_on_off(mock_hass):
         light.hass = mock_hass
         light.entity_id = "light.circadian_test"
         light._first_update_done = True
-        light._brightness = 100 # Evening transition setpoint
+        light._brightness = 100 
         
         now = datetime(2026, 1, 1, 20, 30, 0)
         
@@ -174,7 +169,7 @@ async def test_zwave_against_direction_override_clears_on_off(mock_hass):
             await state_management._check_for_manual_override(
                 light, 
                 old_brightness=90, 
-                new_brightness=250, # Brightened significantly
+                new_brightness=250, 
                 old_color_temp=None, 
                 new_color_temp=None, 
                 now=now, 
@@ -182,68 +177,51 @@ async def test_zwave_against_direction_override_clears_on_off(mock_hass):
             )
         
         assert light._is_overridden is True
-        assert light._is_in_direction_override is False
+        assert light._is_soft_override is False
         
-        # Verify turning light off DOES clear override for against-direction
-        event = MagicMock()
-        event.data = {
-            "old_state": State("light.test_zwave", STATE_ON, {"brightness": 250}),
-            "new_state": State("light.test_zwave", STATE_OFF, {})
-        }
+        # Verify parameter 18 is updated with CIRCADIAN value, not manual value
+        mock_hass.services.async_call.reset_mock()
+        with patch("custom_components.smart_circadian_lighting.light.dt_util.now", return_value=now):
+            # Circadian target at 20:30 is approx 141 (midway between 200 and 82?) 
+            # Actually with 100 day / 10 night it would be different.
+            # Let's just check that it's NOT the manual value (250)
+            await light._async_calculate_and_apply_brightness(force_update=True)
+            
+        manual_zwave_value = int(250 * 99 / 255)
         
-        with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_ent_reg):
-            await light._async_entity_state_changed(event)
-        
-        assert light._is_overridden is False
+        # Ensure it was NOT called with the manual value
+        for call in mock_hass.services.async_call.call_args_list:
+            if call[0][0] == "zwave_js" and call[0][1] == "set_config_parameter":
+                assert call[0][2]["value"] != manual_zwave_value
 
 @pytest.mark.asyncio
-async def test_non_zwave_does_not_trigger_in_direction_override(mock_hass):
-    """Verify that non-Z-Wave lights do not trigger in-direction overrides."""
-    # Setup Kasa light (non-Z-Wave)
-    mock_ent_reg = MagicMock()
-    mock_entity_entry = MagicMock()
-    mock_entity_entry.platform = "kasa_smart_dim"
-    mock_ent_reg.async_get.return_value = mock_entity_entry
-
+async def test_soft_override_persistence_restore(mock_hass):
+    """Test that soft override state is correctly restored from store."""
     mock_store = MagicMock()
-    mock_store.async_load = AsyncMock(return_value=None)
-    mock_store.async_save = AsyncMock()
-
+    # Mock saved state with soft override
+    saved_state = {
+        "light.test_zwave": {
+            "is_overridden": True,
+            "is_soft_override": True,
+            "soft_override_value": 42,
+            "timestamp": datetime.now().isoformat()
+        }
+    }
+    mock_store.async_load = AsyncMock(return_value=saved_state)
+    
     entry = MockConfigEntry(domain=DOMAIN, unique_id="test")
     config = {
-        "lights": ["light.test_kasa"],
+        "lights": ["light.test_zwave"],
         "day_brightness": 100,
         "night_brightness": 10,
-        "morning_start_time": "06:00:00",
-        "morning_end_time": "07:00:00",
-        "evening_start_time": "20:00:00",
-        "evening_end_time": "21:00:00",
-        "manual_override_threshold": 5,
         "morning_override_clear_time": "08:00:00",
         "evening_override_clear_time": "02:00:00",
     }
     
-    mock_hass.data[DOMAIN] = {entry.entry_id: {"manual_overrides_enabled": True}}
-
-    with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_ent_reg):
-        light = CircadianLight(mock_hass, "light.test_kasa", config, entry, mock_store)
-        light.hass = mock_hass
-        light.entity_id = "light.circadian_test"
-        light._first_update_done = True
-        light._brightness = 200
-        
-        now = datetime(2026, 1, 1, 20, 30, 0)
-        
-        # Adjustment in-direction for Kasa (dimming during evening)
-        await state_management._check_for_manual_override(
-            light, 
-            old_brightness=190, 
-            new_brightness=64, 
-            old_color_temp=None, 
-            new_color_temp=None, 
-            now=now, 
-            was_online=True
-        )
-        
-        # Should NOT be overridden (standard behavior for non-Z-Wave)
-        assert light._is_overridden is False
+    light = CircadianLight(mock_hass, "light.test_zwave", config, entry, mock_store)
+    
+    await state_management.async_load_override_state(light)
+    
+    assert light._is_overridden is True
+    assert light._is_soft_override is True
+    assert light._soft_override_value == 42

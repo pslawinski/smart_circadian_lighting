@@ -125,6 +125,8 @@ class CircadianLight(LightEntity):
         # State tracking attributes
         self._is_overridden = False
         self._is_in_direction_override = False
+        self._is_soft_override = False
+        self._soft_override_value = None
         self._override_timestamp = None
         self._expiration_callback_handle = None  # Handle for scheduled expiration callback
         self._is_online = True  # Assume online initially
@@ -306,8 +308,14 @@ class CircadianLight(LightEntity):
                     entity_registry = er.async_get(self._hass)
                     entity_entry = entity_registry.async_get(self._light_entity_id)
                     is_kasa_dimmer = entity_entry and entity_entry.platform == "kasa_smart_dim"
+                    is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
 
-                    if is_kasa_dimmer and self._last_set_brightness is not None:
+                    if is_zwave_light and getattr(self, "_is_soft_override", False):
+                        _LOGGER.debug(
+                            f"[{self._light_entity_id}] Z-Wave light turned on with soft override active. Skipping immediate circadian update to respect preloaded brightness."
+                        )
+                        should_update = False
+                    elif is_kasa_dimmer and self._last_set_brightness is not None:
                         current_brightness = new_state.attributes.get(ATTR_BRIGHTNESS)
                         if current_brightness == self._last_set_brightness:
                             should_update = True
@@ -741,13 +749,23 @@ class CircadianLight(LightEntity):
         is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
 
         if is_zwave_light and target_brightness_255 is not None:
-            # Use current circadian target unless we have an in-direction override
+            # Determine which value to use for parameter 18
+            # - Soft override: Use the pinned manual value
+            # - Hard override: Use current circadian target (allows return-to-schedule via toggle)
+            # - No override: Use current circadian target
             value_to_use = target_brightness_255
-            if self._is_overridden and getattr(self, "_is_in_direction_override", False):
-                value_to_use = self._brightness
-                _LOGGER.debug(
-                    f"[{self._light_entity_id}] Using manual brightness {value_to_use} for Z-Wave parameter 18 due to in-direction override"
-                )
+            
+            if self._is_overridden:
+                if getattr(self, "_is_soft_override", False) and self._soft_override_value is not None:
+                    value_to_use = self._soft_override_value
+                    _LOGGER.debug(
+                        f"[{self._light_entity_id}] Using pinned manual brightness {value_to_use} for Z-Wave parameter 18 due to soft override"
+                    )
+                elif getattr(self, "_is_in_direction_override", False): # Legacy support / fallback
+                    value_to_use = self._brightness
+                    _LOGGER.debug(
+                        f"[{self._light_entity_id}] Using manual brightness {value_to_use} for Z-Wave parameter 18 due to in-direction override"
+                    )
 
             zwave_brightness = int(value_to_use * 99 / 255)
             zwave_brightness = max(0, min(99, zwave_brightness))

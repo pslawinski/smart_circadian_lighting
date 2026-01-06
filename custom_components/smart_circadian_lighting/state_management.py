@@ -138,6 +138,8 @@ async def async_save_override_state(light: CircadianLight) -> None:
     saved_states[light._light_entity_id] = {
         "is_overridden": light._is_overridden,
         "is_in_direction_override": getattr(light, "_is_in_direction_override", False),
+        "is_soft_override": getattr(light, "_is_soft_override", False),
+        "soft_override_value": getattr(light, "_soft_override_value", None),
         "timestamp": light._override_timestamp.isoformat() if light._override_timestamp else None,
     }
     await light._store.async_save(saved_states)
@@ -184,6 +186,8 @@ async def async_load_override_state(light: CircadianLight) -> None:
         state_data = saved_states[light._light_entity_id]
         light._is_overridden = state_data.get("is_overridden", False)
         light._is_in_direction_override = state_data.get("is_in_direction_override", False)
+        light._is_soft_override = state_data.get("is_soft_override", False)
+        light._soft_override_value = state_data.get("soft_override_value")
         timestamp_str = state_data.get("timestamp")
         if timestamp_str:
             light._override_timestamp = dt_util.parse_datetime(timestamp_str)
@@ -208,6 +212,8 @@ async def async_clear_manual_override(light: CircadianLight) -> None:
     if light._is_overridden:
         light._is_overridden = False
         light._is_in_direction_override = False
+        light._is_soft_override = False
+        light._soft_override_value = None
         # Cancel any scheduled expiration callback
         if light._expiration_callback_handle:
             light._expiration_callback_handle()
@@ -298,8 +304,9 @@ async def _check_for_manual_override(
                     if abs(brightness_diff) > light._manual_override_threshold:
                         brightness_override = True
                         is_in_direction = True
+                        is_soft_override = True  # Z-Wave in-direction is always a soft override
                         _LOGGER.debug(
-                            f"{'Morning' if is_morning else 'Evening'} Z-Wave in-direction override detected: new={new_brightness}, old={old_brightness}, diff={brightness_diff}"
+                            f"{'Morning' if is_morning else 'Evening'} Z-Wave in-direction soft override detected: new={new_brightness}, old={old_brightness}, diff={brightness_diff}"
                         )
 
         # Soft override detection: user adjusts in the same direction as the transition at transition start
@@ -380,9 +387,12 @@ async def _check_for_manual_override(
         )
         light._is_overridden = True
         light._is_in_direction_override = is_in_direction
+        light._is_soft_override = is_soft_override
         # Update the brightness to the user's manually set value for soft overrides and in-direction overrides
         if new_brightness is not None:
             light._brightness = new_brightness
+            if is_soft_override:
+                light._soft_override_value = new_brightness
         await async_save_override_state(light)
         light._event_throttle_time = now + timedelta(seconds=5)
     elif color_temp_override:
