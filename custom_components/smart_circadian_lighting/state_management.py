@@ -23,7 +23,7 @@ def check_override_expiration(light: CircadianLight) -> bool:
     if not light._is_overridden or not light._override_timestamp:
         return False
 
-    now = dt_util.now()
+    now = dt_util.utcnow()
     morning_clear_time_str = light._config["morning_override_clear_time"]
     evening_clear_time_str = light._config["evening_override_clear_time"]
 
@@ -70,7 +70,7 @@ def _calculate_next_clear_time(light: CircadianLight) -> datetime:
     if hasattr(light, "_test_now"):
         now = light._test_now
     else:
-        now = dt_util.now()
+        now = dt_util.utcnow()
     morning_clear_time_str = light._config["morning_override_clear_time"]
     evening_clear_time_str = light._config["evening_override_clear_time"]
 
@@ -156,7 +156,7 @@ async def async_save_override_state(light: CircadianLight) -> None:
 
         # Schedule new callback for next clear time
         next_clear_time = _calculate_next_clear_time(light)
-        now = light._test_now if hasattr(light, "_test_now") else dt_util.now()
+        now = light._test_now if hasattr(light, "_test_now") else dt_util.utcnow()
         delay_seconds = (next_clear_time - now).total_seconds()
         if delay_seconds > 0:
             _LOGGER.debug(
@@ -237,6 +237,9 @@ async def _check_for_manual_override(
     if not light._first_update_done:
         return
 
+    if now is None:
+        now = dt_util.utcnow()
+
     # Check if manual overrides are enabled
     if not light._hass.data[DOMAIN][light._entry.entry_id].get("manual_overrides_enabled", True):
         return
@@ -300,18 +303,7 @@ async def _check_for_manual_override(
 
         # Z-Wave specific in-direction override: always captured during transition if substantial
         if not brightness_override:
-            # Check if we're dealing with a Z-Wave light
-            is_zwave = False
-            try:
-                from homeassistant.helpers import entity_registry as er
-
-                entity_registry = er.async_get(light._hass)
-                entity_entry = entity_registry.async_get(light._light_entity_id)
-                is_zwave = entity_entry and entity_entry.platform == "zwave_js"
-            except Exception:
-                pass
-
-            if is_zwave:
+            if light.is_zwave:
                 # Check for in-direction adjustment (brightening in morning, dimming in evening)
                 if (is_morning and brightness_diff > 0) or (not is_morning and brightness_diff < 0):
                     if abs(brightness_diff) > light._manual_override_threshold:
@@ -408,6 +400,10 @@ async def _check_for_manual_override(
                 light._soft_override_value = new_brightness
         await async_save_override_state(light)
         light._event_throttle_time = now + timedelta(seconds=5)
+
+        # Trigger immediate update to sync Z-Wave parameter 18 for soft overrides
+        if light.is_zwave and is_soft_override:
+            light.hass.async_create_task(light.async_update_brightness(force_update=True))
     elif color_temp_override:
         _LOGGER.info(
             f"[{light._light_entity_id}] Manual color temperature override detected for {light.name}. "
@@ -497,15 +493,28 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
         light._last_reported_brightness = new_brightness
 
     # If an override is active and hasn't expired, do nothing.
-    if light._is_overridden and not check_override_expiration(light):
+    # Exception: Allow soft overrides to pass through so manual adjustments can be refined.
+    if (
+        light._is_overridden
+        and not getattr(light, "_is_soft_override", False)
+        and not check_override_expiration(light)
+    ):
         _LOGGER.debug(
-            f"[{light._light_entity_id}] State change for {light.name} ignored: override is active."
+            f"[{light._light_entity_id}] State change for {light.name} ignored: hard override is active."
         )
         return
 
     # Throttle event handling to avoid rapid firing
+    # Exception: If this is a soft override being refined, bypass the throttle
     if light._event_throttle_time and now < light._event_throttle_time:
-        return
+        if getattr(light, "_is_soft_override", False) and new_brightness is not None and old_brightness is not None:
+            # Only bypass throttle if it's a significant change (above threshold)
+            if abs(new_brightness - old_brightness) > light._manual_override_threshold:
+                _LOGGER.debug(f"[{light._light_entity_id}] Bypassing event throttle for soft override refinement")
+            else:
+                return
+        else:
+            return
 
     await _check_for_manual_override(
         light, old_brightness, new_brightness, old_color_temp, new_color_temp, now, was_online

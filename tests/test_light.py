@@ -374,21 +374,12 @@ class TestZwaveParameterSetting:
             # Call _async_calculate_and_apply_brightness
             await light._async_calculate_and_apply_brightness()
 
-            # Verify Z-Wave parameter 18 was set even during override
-            mock_services.async_call.assert_called()
+            # Verify Z-Wave parameter 18 was NOT set during a hard override
             calls = mock_services.async_call.call_args_list
-
-            # Find the Z-Wave parameter call
-            zwave_call = None
             for call in calls:
                 if call[0][0] == "zwave_js" and call[0][1] == "set_config_parameter":
-                    zwave_call = call
-                    break
-
-            assert zwave_call is not None, f"Z-Wave parameter call not found in calls: {calls}"
-            call_data = zwave_call[0][2]
-            assert call_data["parameter"] == 18
-            # Should be set to circadian target, not manual brightness
+                    if call[0][2].get("parameter") == 18:
+                        pytest.fail("Z-Wave parameter 18 was synced during a hard override in test_light.py, but it should have been skipped.")
 
     @pytest.mark.asyncio
     async def test_zwave_override_cleared_when_light_turns_off(self):

@@ -389,20 +389,34 @@ class CircadianLight(LightEntity):
         )
 
     @property
+    def is_zwave(self) -> bool:
+        """Return True if the underlying light is a Z-Wave JS device."""
+        try:
+            entity_registry = er.async_get(self._hass)
+            entity_entry = entity_registry.async_get(self._light_entity_id)
+            return entity_entry and entity_entry.platform == "zwave_js"
+        except Exception:
+            return False
+
+    @property
+    def is_kasa(self) -> bool:
+        """Return True if the underlying light is a Kasa Smart device."""
+        try:
+            entity_registry = er.async_get(self._hass)
+            entity_entry = entity_registry.async_get(self._light_entity_id)
+            return entity_entry and entity_entry.platform == "kasa_smart_dim"
+        except Exception:
+            return False
+
+    @property
     def max_quantization_error(self) -> int:
         """Return the maximum quantization error for the light's scale."""
         if "test" in self._light_entity_id:
             return 3  # For tests, use max error for truncate conversions
-        try:
-            entity_registry = er.async_get(self._hass)
-            entity_entry = entity_registry.async_get(self._light_entity_id)
-            if entity_entry:
-                if entity_entry.platform == "zwave_js":
-                    return 3  # Max error for 0-99 truncate
-                elif entity_entry.platform == "kasa_smart_dim":
-                    return 3  # Max error for 0-100 truncate
-        except KeyError:
-            pass
+        if self.is_zwave:
+            return 3  # Max error for 0-99 truncate
+        if self.is_kasa:
+            return 3  # Max error for 0-100 truncate
         return 0
 
     @property
@@ -765,16 +779,17 @@ class CircadianLight(LightEntity):
                 f"[{self._light_entity_id}] No color temperature schedule available, sun elevation: {sun_elevation}°"
             )
 
-        # For Z-Wave lights, always set parameter 18 regardless of override state
-        # This allows users to "return to schedule" by turning lights off/on
+        # For Z-Wave lights, set parameter 18 to preload brightness for next turn-on.
+        # - No override: Use current circadian target.
+        # - Soft override: Use the pinned manual value.
+        # - Hard override: Skip sync (only soft overrides should be synced to 18).
         if is_zwave_light and target_brightness_255 is not None:
             # Determine which value to use for parameter 18
-            # - Soft override: Use the pinned manual value
-            # - Hard override: Use current circadian target (allows return-to-schedule via toggle)
-            # - No override: Use current circadian target
-            value_to_use = target_brightness_255
-            
-            if self._is_overridden:
+            value_to_use = None
+
+            if not self._is_overridden:
+                value_to_use = target_brightness_255
+            else:
                 if getattr(self, "_is_soft_override", False) and self._soft_override_value is not None:
                     value_to_use = self._soft_override_value
                     _LOGGER.debug(
@@ -785,33 +800,38 @@ class CircadianLight(LightEntity):
                     _LOGGER.debug(
                         f"[{self._light_entity_id}] Using manual brightness {value_to_use} for Z-Wave parameter 18 due to in-direction override"
                     )
-
-            zwave_brightness = int(value_to_use * 99 / 255)
-            zwave_brightness = max(0, min(99, zwave_brightness))
-
-            # Only update parameter if it has changed or we are forced
-            if force_update or getattr(self, "_last_zwave_param_18", None) != zwave_brightness:
-                try:
-                    await asyncio.wait_for(
-                        self._hass.services.async_call(
-                            "zwave_js",
-                            "set_config_parameter",
-                            {
-                                "device_id": entity_entry.device_id,
-                                "parameter": 18,
-                                "value": zwave_brightness,
-                            },
-                        ),
-                        timeout=LIGHT_UPDATE_TIMEOUT,
-                    )
+                else:
                     _LOGGER.debug(
-                        f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {value_to_use})"
+                        f"[{self._light_entity_id}] Skipping Z-Wave parameter 18 sync during hard override"
                     )
-                    self._last_zwave_param_18 = zwave_brightness
-                except TimeoutError:
-                    _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
-                except HomeAssistantError as e:
-                    _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
+
+            if value_to_use is not None:
+                zwave_brightness = int(value_to_use * 99 / 255)
+                zwave_brightness = max(0, min(99, zwave_brightness))
+
+                # Only update parameter if it has changed or we are forced
+                if force_update or getattr(self, "_last_zwave_param_18", None) != zwave_brightness:
+                    try:
+                        await asyncio.wait_for(
+                            self._hass.services.async_call(
+                                "zwave_js",
+                                "set_config_parameter",
+                                {
+                                    "device_id": entity_entry.device_id,
+                                    "parameter": 18,
+                                    "value": zwave_brightness,
+                                },
+                            ),
+                            timeout=LIGHT_UPDATE_TIMEOUT,
+                        )
+                        _LOGGER.debug(
+                            f"[{self._light_entity_id}] Set Z-Wave parameter 18 to {zwave_brightness} (brightness: {value_to_use})"
+                        )
+                        self._last_zwave_param_18 = zwave_brightness
+                    except TimeoutError:
+                        _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
+                    except HomeAssistantError as e:
+                        _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
 
         if skip_physical_update:
             _LOGGER.debug(

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.const import STATE_ON, STATE_OFF, STATE_UNAVAILABLE
 from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.core import State
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smart_circadian_lighting.light import CircadianLight
@@ -60,11 +61,14 @@ async def test_zwave_soft_override_behavior(mock_hass):
         light.entity_id = "light.circadian_test"
         light._first_update_done = True
         
+        # Mock async_update_brightness to avoid RuntimeWarning when called via async_create_task
+        light.async_update_brightness = MagicMock()
+        
         # Set a circadian setpoint for evening transition (e.g., 200 / ~78%)
         light._brightness = 200
         
         # 1. Trigger in-direction override during evening transition (dimming)
-        now = datetime(2026, 1, 1, 20, 30, 0)
+        now = dt_util.as_utc(datetime(2026, 1, 1, 20, 30, 0))
         
         # Simulate manual adjustment from 200 (circadian) to 64 (25%)
         with patch("custom_components.smart_circadian_lighting.state_management.async_save_override_state", AsyncMock()):
@@ -106,7 +110,8 @@ async def test_zwave_soft_override_behavior(mock_hass):
             "new_state": State("light.test_zwave", STATE_OFF, {})
         }
         
-        with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_ent_reg):
+        with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_ent_reg), \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow", return_value=now):
             await light._async_entity_state_changed(event)
         
         assert light._is_overridden is True
@@ -160,9 +165,12 @@ async def test_zwave_hard_override_does_not_pin_parameter_18(mock_hass):
         light.hass = mock_hass
         light.entity_id = "light.circadian_test"
         light._first_update_done = True
+        
+        # Mock async_update_brightness to avoid RuntimeWarning when called via async_create_task
+        light.async_update_brightness = MagicMock()
         light._brightness = 100 
         
-        now = datetime(2026, 1, 1, 20, 30, 0)
+        now = dt_util.as_utc(datetime(2026, 1, 1, 20, 30, 0))
         
         # Trigger AGAINST-direction override (brightening during evening)
         with patch("custom_components.smart_circadian_lighting.state_management.async_save_override_state", AsyncMock()):
@@ -189,10 +197,11 @@ async def test_zwave_hard_override_does_not_pin_parameter_18(mock_hass):
             
         manual_zwave_value = int(250 * 99 / 255)
         
-        # Ensure it was NOT called with the manual value
+        # Ensure it was NOT called for parameter 18 at all
         for call in mock_hass.services.async_call.call_args_list:
             if call[0][0] == "zwave_js" and call[0][1] == "set_config_parameter":
-                assert call[0][2]["value"] != manual_zwave_value
+                if call[0][2].get("parameter") == 18:
+                    pytest.fail("Z-Wave parameter 18 was synced during a hard override, but it should have been skipped.")
 
 @pytest.mark.asyncio
 async def test_soft_override_persistence_restore(mock_hass):
@@ -262,12 +271,15 @@ async def test_zwave_manual_adjustment_before_transition(mock_hass):
         light.entity_id = "light.circadian_test"
         light._first_update_done = True
         
+        # Mock async_update_brightness to avoid RuntimeWarning when called via async_create_task
+        light.async_update_brightness = MagicMock()
+        
         # Mock brightness refresh to return current value
         light._get_current_brightness_with_refresh = AsyncMock(side_effect=lambda: light._last_reported_brightness)
         
         # 1. Adjust light at 5:00 PM (Before evening transition)
-        now_pre = datetime(2026, 1, 1, 17, 0, 0, tzinfo=None)
-        with patch("homeassistant.util.dt.utcnow", return_value=now_pre):
+        now_pre = dt_util.as_utc(datetime(2026, 1, 1, 17, 0, 0))
+        with patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow", return_value=now_pre):
             light._brightness = circadian_logic.calculate_brightness_for_time(
                 now_pre, {}, config, light._day_brightness_255, light._night_brightness_255
             )
@@ -287,7 +299,7 @@ async def test_zwave_manual_adjustment_before_transition(mock_hass):
         
         # 2. Transition starts at 8:30 PM.
         # Detection should happen when we run the update.
-        now_transition = datetime(2026, 1, 1, 20, 30, 0, tzinfo=None)
+        now_transition = dt_util.as_utc(datetime(2026, 1, 1, 20, 30, 0))
         mock_hass.services.async_call.reset_mock()
         
         # Ensure the physical entity is reported as 150
@@ -348,14 +360,18 @@ async def test_zwave_soft_override_persistence_through_toggle(mock_hass):
         light.entity_id = "light.circadian_test"
         light._first_update_done = True
         
+        # Mock async_update_brightness to avoid RuntimeWarning when called via async_create_task
+        light.async_update_brightness = MagicMock()
+        
         # 1. Trigger soft override during evening transition (dimming to 64/25%)
-        now = datetime(2026, 1, 1, 20, 30, 0)
+        now = dt_util.as_utc(datetime(2026, 1, 1, 20, 30, 0))
         light._brightness = 200 # Circadian setpoint
         
         with patch("custom_components.smart_circadian_lighting.state_management.async_save_override_state", AsyncMock()):
             await state_management._check_for_manual_override(
                 light, old_brightness=200, new_brightness=64, old_color_temp=None, new_color_temp=None, now=now, was_online=True
             )
+            await asyncio.sleep(0) # Let immediate sync task run to avoid RuntimeWarning
         
         assert light._is_soft_override is True
         assert light._soft_override_value == 64
@@ -377,7 +393,8 @@ async def test_zwave_soft_override_persistence_through_toggle(mock_hass):
             "old_state": State("light.test_zwave", STATE_ON, {"brightness": 64}),
             "new_state": State("light.test_zwave", STATE_OFF, {})
         }
-        await light._async_entity_state_changed(event)
+        with patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow", return_value=now):
+            await light._async_entity_state_changed(event)
         
         # 3. Simulate time passing within transition while OFF
         now_later = now + timedelta(minutes=15)
@@ -399,7 +416,8 @@ async def test_zwave_soft_override_persistence_through_toggle(mock_hass):
             "old_state": State("light.test_zwave", STATE_OFF, {}),
             "new_state": State("light.test_zwave", STATE_ON, {"brightness": 64})
         }
-        with patch.object(light, "_async_calculate_and_apply_brightness", AsyncMock()) as mock_update:
+        with patch.object(light, "_async_calculate_and_apply_brightness", AsyncMock()) as mock_update, \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow", return_value=now_later):
             await light._async_entity_state_changed(event)
             # Should skip update because it's a Z-Wave soft override
             mock_update.assert_not_called()
