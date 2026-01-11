@@ -224,7 +224,7 @@ class TestZwaveParameterSetting:
              patch.object(mock_hass, 'states') as mock_states, \
              patch.object(mock_hass, 'services') as mock_services, \
              patch.object(light, 'async_write_ha_state'), \
-             patch.object(mock_hass, 'async_create_task', return_value=None), \
+             patch.object(mock_hass, 'async_create_task', side_effect=lambda coro: coro.close()), \
              patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_now, \
              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
 
@@ -263,7 +263,7 @@ class TestZwaveParameterSetting:
         mock_hass = MagicMock()
         mock_hass.services = MagicMock()
         mock_hass.services.async_call = AsyncMock()
-        mock_hass.async_create_task = MagicMock(return_value=None)
+        mock_hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close() if hasattr(coro, 'close') else None)
         mock_hass.loop = asyncio.get_event_loop()
 
         states = mock_states_manager(mock_hass)
@@ -498,7 +498,7 @@ class TestZwaveTransitionBehavior:
         mock_hass.data = {}
         mock_hass.services = MagicMock()
         mock_hass.services.async_call = AsyncMock()
-        mock_hass.async_create_task = MagicMock(return_value=None)
+        mock_hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close() if hasattr(coro, 'close') else None)
         mock_hass.loop = asyncio.get_event_loop()
 
         states = mock_states_manager(mock_hass)
@@ -569,7 +569,7 @@ class TestZwaveTransitionBehavior:
         mock_hass = MagicMock()
         mock_hass.services = MagicMock()
         mock_hass.services.async_call = AsyncMock()
-        mock_hass.async_create_task = MagicMock(return_value=None)
+        mock_hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close() if hasattr(coro, 'close') else None)
         mock_hass.loop = asyncio.get_event_loop()
 
         states = mock_states_manager(mock_hass)
@@ -667,7 +667,7 @@ class TestZwaveTransitionBehavior:
              patch.object(mock_hass, 'states') as mock_states, \
              patch.object(mock_hass, 'services') as mock_services, \
              patch.object(light, 'async_write_ha_state'), \
-             patch.object(mock_hass, 'async_create_task', return_value=None), \
+             patch.object(mock_hass, 'async_create_task', side_effect=lambda coro: coro.close()), \
              patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_now, \
              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
 

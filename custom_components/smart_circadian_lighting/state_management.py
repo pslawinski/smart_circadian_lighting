@@ -5,7 +5,7 @@ from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
@@ -141,6 +141,8 @@ async def async_save_override_state(light: CircadianLight) -> None:
         "is_soft_override": getattr(light, "_is_soft_override", False),
         "soft_override_value": getattr(light, "_soft_override_value", None),
         "timestamp": light._override_timestamp.isoformat() if light._override_timestamp else None,
+        "last_set_brightness": getattr(light, "_last_set_brightness", None),
+        "last_set_color_temp": getattr(light, "_last_set_color_temp", None),
     }
     await light._store.async_save(saved_states)
     _LOGGER.debug(
@@ -188,6 +190,8 @@ async def async_load_override_state(light: CircadianLight) -> None:
         light._is_in_direction_override = state_data.get("is_in_direction_override", False)
         light._is_soft_override = state_data.get("is_soft_override", False)
         light._soft_override_value = state_data.get("soft_override_value")
+        light._last_set_brightness = state_data.get("last_set_brightness")
+        light._last_set_color_temp = state_data.get("last_set_color_temp")
         timestamp_str = state_data.get("timestamp")
         if timestamp_str:
             light._override_timestamp = dt_util.parse_datetime(timestamp_str)
@@ -257,16 +261,30 @@ async def _check_for_manual_override(
     is_evening = circadian_logic.is_evening_transition(
         now, light._temp_transition_override, light._config
     )
-    print(f"DEBUG: now={now}, is_morning={is_morning}, is_evening={is_evening}")
 
     brightness_override = False
     is_soft_override = False
     is_in_direction = False
     color_temp_override = False
 
+    # Check if the current state matches the last commanded state.
+    # If it matches (within threshold), we NEVER consider it a manual override.
+    matches_last_set_brightness = (
+        new_brightness is not None
+        and light._last_set_brightness is not None
+        and abs(new_brightness - light._last_set_brightness) <= light.max_quantization_error
+    )
+    matches_last_set_color_temp = (
+        new_color_temp is not None
+        and light._last_set_color_temp is not None
+        and abs(new_color_temp - light._last_set_color_temp)
+        <= light._color_temp_manual_override_threshold
+    )
+
     # Check brightness override
     if (
-        new_brightness is not None
+        not matches_last_set_brightness
+        and new_brightness is not None
         and old_brightness is not None
         and light._brightness is not None
         and isinstance(new_brightness, int)
@@ -357,24 +375,11 @@ async def _check_for_manual_override(
                             f"Evening soft override check: new={new_brightness}, old={old_brightness}, progress={progress}, diff={brightness_diff}, threshold={light._manual_override_threshold}"
                         )
 
-        # Optimistic update filtering:
-        # If the old_brightness is very close to our last-set target brightness,
-        # it's likely this isn't a manual override, but a correction from
-        # an optimistic state report from the light.
-        # Skip this filtering for soft overrides, as they are intentional user adjustments.
-        # Also skip when the light is coming back online (was_online=False), because
-        # we need to detect manual adjustments that may have occurred while offline.
-        if (
-            brightness_override
-            and not is_soft_override
-            and was_online
-            and abs(old_brightness - light._brightness) <= 5
-        ):
-            brightness_override = False
-
     # Check color temperature override
     if (
-        new_color_temp is not None
+        not matches_last_set_color_temp
+        and light._color_temp_schedule
+        and new_color_temp is not None
         and old_color_temp is not None
         and light._color_temp_kelvin is not None
     ):
@@ -501,6 +506,14 @@ async def handle_entity_state_changed(light: CircadianLight, event: Any) -> None
     ):
         _LOGGER.debug(
             f"[{light._light_entity_id}] State change for {light.name} ignored: hard override is active."
+        )
+        return
+
+    # Skip override detection if the light is physically OFF.
+    # Manual adjustments to brightness while off (preloading) are ignored per documentation.
+    if new_state.state != STATE_ON:
+        _LOGGER.debug(
+            f"[{light._light_entity_id}] State change for {light.name} ignored: light is {new_state.state}."
         )
         return
 

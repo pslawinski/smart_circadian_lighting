@@ -241,8 +241,8 @@ class CircadianLight(LightEntity):
     @callback
     async def _async_entity_state_changed(self, event) -> None:
         """Handle state changes of the underlying entity."""
-        print(f"DEBUG LIGHT EVENT: {self._light_entity_id}")
         new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
         if not new_state:
             return
 
@@ -259,26 +259,6 @@ class CircadianLight(LightEntity):
                 # If the light was previously offline, force an update
                 self._hass.async_create_task(self.async_force_update_circadian())
             else:
-                # Check if light just turned on and matches last set values
-                old_state = event.data.get("old_state")
-                if old_state and old_state.state != STATE_ON and new_state.state == STATE_ON:
-                    # Light just turned on
-                    entity_registry = er.async_get(self._hass)
-                    entity_entry = entity_registry.async_get(self._light_entity_id)
-                    is_kasa_dimmer = entity_entry and entity_entry.platform == "kasa_smart_dim"
-
-                    if is_kasa_dimmer and self._last_set_brightness is not None:
-                        current_brightness = new_state.attributes.get(ATTR_BRIGHTNESS)
-                        current_color_temp = new_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)
-                        if current_brightness == self._last_set_brightness and (
-                            self._last_set_color_temp is None
-                            or current_color_temp == self._last_set_color_temp
-                        ):
-                            _LOGGER.debug(
-                                f"[{self._light_entity_id}] Light turned on with last set values, updating to current circadian."
-                            )
-                            self._hass.async_create_task(self.async_force_update_circadian())
-
                 # If the light is online, handle other state changes
                 await state_management.handle_entity_state_changed(self, event)
 
@@ -308,7 +288,6 @@ class CircadianLight(LightEntity):
 
                     entity_registry = er.async_get(self._hass)
                     entity_entry = entity_registry.async_get(self._light_entity_id)
-                    is_kasa_dimmer = entity_entry and entity_entry.platform == "kasa_smart_dim"
                     is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
 
                     if is_zwave_light and getattr(self, "_is_soft_override", False):
@@ -316,9 +295,30 @@ class CircadianLight(LightEntity):
                             f"[{self._light_entity_id}] Z-Wave light turned on with soft override active. Skipping immediate circadian update to respect preloaded brightness."
                         )
                         should_update = False
-                    elif is_kasa_dimmer and self._last_set_brightness is not None:
+                    elif self._last_set_brightness is not None:
                         current_brightness = new_state.attributes.get(ATTR_BRIGHTNESS)
-                        if current_brightness == self._last_set_brightness:
+                        current_color_temp = new_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)
+                        
+                        # Match brightness within threshold
+                        brightness_matches = (
+                            current_brightness is not None
+                            and abs(current_brightness - self._last_set_brightness)
+                            <= self.max_quantization_error
+                        )
+                        
+                        # Match color temp if it was set
+                        color_temp_matches = True
+                        if self._last_set_color_temp is not None:
+                            color_temp_matches = (
+                                current_color_temp is not None
+                                and abs(current_color_temp - self._last_set_color_temp)
+                                <= self._color_temp_manual_override_threshold
+                            )
+                            
+                        if brightness_matches and color_temp_matches:
+                            _LOGGER.debug(
+                                f"[{self._light_entity_id}] Light turned on with last set values, updating to current circadian."
+                            )
                             should_update = True
                     elif self._color_temp_schedule:  # Color temp enabled
                         should_update = True
@@ -670,10 +670,26 @@ class CircadianLight(LightEntity):
                     is_soft_override = False
                     soft_override_value = None
 
+                    # Check if the current state matches the last commanded state.
+                    # If it matches (within threshold), we NEVER consider it a manual override.
+                    matches_last_set_brightness = (
+                        current_brightness is not None
+                        and self._last_set_brightness is not None
+                        and abs(current_brightness - self._last_set_brightness)
+                        <= self.max_quantization_error
+                    )
+                    matches_last_set_color_temp = (
+                        current_color_temp is not None
+                        and self._last_set_color_temp is not None
+                        and abs(current_color_temp - self._last_set_color_temp)
+                        <= self._color_temp_manual_override_threshold
+                    )
+
                     if mode == "evening_transition":
                         # Evening transition: check if ahead (dimmer than day or warmer than day)
                         if (
-                            current_brightness is not None
+                            not matches_last_set_brightness
+                            and current_brightness is not None
                             and current_brightness
                             < self._day_brightness_255 - self._manual_override_threshold
                         ):
@@ -684,7 +700,8 @@ class CircadianLight(LightEntity):
                                 f"[{self._light_entity_id}] Evening transition start: current brightness {current_brightness} < day brightness {self._day_brightness_255} - threshold {self._manual_override_threshold}, marking as soft override"
                             )
                         if (
-                            current_color_temp is not None
+                            not matches_last_set_color_temp
+                            and current_color_temp is not None
                             and self._color_temp_schedule
                             and current_color_temp
                             < self._config.get("day_color_temp_kelvin", 5000)
@@ -698,7 +715,8 @@ class CircadianLight(LightEntity):
                     elif mode == "morning_transition":
                         # Morning transition: check if ahead (brighter than night or cooler than night)
                         if (
-                            current_brightness is not None
+                            not matches_last_set_brightness
+                            and current_brightness is not None
                             and current_brightness
                             > self._night_brightness_255 + self._manual_override_threshold
                         ):
@@ -709,7 +727,8 @@ class CircadianLight(LightEntity):
                                 f"[{self._light_entity_id}] Morning transition start: current brightness {current_brightness} > night brightness {self._night_brightness_255} + threshold {self._manual_override_threshold}, marking as soft override"
                             )
                         if (
-                            current_color_temp is not None
+                            not matches_last_set_color_temp
+                            and current_color_temp is not None
                             and self._color_temp_schedule
                             and current_color_temp
                             > self._config.get("night_color_temp_kelvin", 1800)

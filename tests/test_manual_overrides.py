@@ -15,12 +15,13 @@ Test Organization:
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from freezegun import freeze_time
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN
-from homeassistant.const import STATE_ON, STATE_UNAVAILABLE
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smart_circadian_lighting import DOMAIN
@@ -66,6 +67,28 @@ def mock_state_factory():
 
 
 @pytest.fixture
+def config_entry():
+    """Create a mock config entry."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "lights": ["light.test_bulb"],
+            "day_brightness": 100,
+            "night_brightness": 10,
+            "morning_start_time": "06:00:00",
+            "morning_end_time": "08:00:00",
+            "evening_start_time": "18:00:00",
+            "evening_end_time": "20:00:00",
+            "manual_override_threshold": 5,
+            "morning_override_clear_time": "05:00:00",
+            "evening_override_clear_time": "17:00:00",
+        },
+        entry_id="test_entry",
+    )
+    return entry
+
+
+@pytest.fixture
 def mock_hass():
     """Create a mock Home Assistant instance."""
     hass = MagicMock()
@@ -78,7 +101,7 @@ def mock_hass():
     hass.bus.async_fire = AsyncMock()
     hass.data = {}
     hass.loop = asyncio.new_event_loop()
-    hass.async_create_task = MagicMock(return_value=None)
+    hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close() if hasattr(coro, 'close') else None)
     return hass
 
 
@@ -3746,3 +3769,39 @@ class TestMultiScaleBrightness:
             assert not light._is_overridden, (
                 f"Override incorrectly triggered for within-threshold adjustment in {light_scale}"
             )
+
+    @pytest.mark.asyncio
+    async def test_brightness_change_while_off_does_not_trigger_override(self, mock_hass, config_entry):
+        """Verify that changing brightness while the light is OFF does not trigger an override."""
+        light_entity_id = "light.test_bulb"
+        config = config_entry.data
+        
+        # Initialize light
+        mock_store = MagicMock()
+        mock_store.async_load = AsyncMock(return_value={})
+        mock_store.async_save = AsyncMock()
+        with patch("custom_components.smart_circadian_lighting.light.Store", return_value=mock_store):
+            light = CircadianLight(mock_hass, light_entity_id, config, config_entry, mock_store)
+            light.hass = mock_hass
+            light._first_update_done = True
+            light._is_online = True
+
+        # Set current circadian brightness (morning transition)
+        light._brightness = 150 
+        
+        # Mock current time to morning transition
+        morning_time = datetime.combine(datetime.now().date(), time(7, 0, 0))
+        
+        # State change: OFF -> OFF, but brightness changes (preloading)
+        old_state = MagicMock(state=STATE_OFF, attributes={ATTR_BRIGHTNESS: 100})
+        new_state = MagicMock(state=STATE_OFF, attributes={ATTR_BRIGHTNESS: 50}) # Dimming against morning transition
+        event = MagicMock(data={"old_state": old_state, "new_state": new_state})
+        
+        mock_hass.states.get.return_value = new_state
+        
+        with patch.object(light, "_get_current_brightness_with_refresh", AsyncMock(return_value=50)):
+            with freeze_time(morning_time):
+                await state_management.handle_entity_state_changed(light, event)
+                
+        assert not light._is_overridden, "Override should NOT be triggered when light is OFF"
+
