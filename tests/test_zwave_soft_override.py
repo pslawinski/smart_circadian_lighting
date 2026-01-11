@@ -423,3 +423,90 @@ async def test_zwave_soft_override_persistence_through_toggle(mock_hass):
             mock_update.assert_not_called()
         
         assert light._brightness == 64
+
+@pytest.mark.asyncio
+async def test_zwave_in_direction_adjustment_during_transition(mock_hass):
+    """Scenario 2: User adjusts light down to 25% DURING the evening transition.
+    Verify soft override is detected, target setpoint is changed to 25%, 
+    and parameter 18 is updated.
+    """
+    # Setup Z-Wave light
+    mock_ent_reg = MagicMock()
+    mock_entity_entry = MagicMock()
+    mock_entity_entry.platform = "zwave_js"
+    mock_entity_entry.device_id = "test_device_id"
+    mock_ent_reg.async_get.return_value = mock_entity_entry
+
+    mock_store = MagicMock()
+    mock_store.async_load = AsyncMock(return_value=None)
+    mock_store.async_save = AsyncMock()
+
+    entry = MockConfigEntry(domain=DOMAIN, unique_id="test")
+    config = {
+        "lights": ["light.test_zwave"],
+        "day_brightness": 100,
+        "night_brightness": 10,
+        "morning_start_time": "06:00:00",
+        "morning_end_time": "07:00:00",
+        "evening_start_time": "20:00:00",
+        "evening_end_time": "21:00:00",
+        "manual_override_threshold": 5,
+    }
+    
+    mock_hass.data[DOMAIN] = {entry.entry_id: {"manual_overrides_enabled": True}}
+
+    with patch("homeassistant.helpers.entity_registry.async_get", return_value=mock_ent_reg):
+        light = CircadianLight(mock_hass, "light.test_zwave", config, entry, mock_store)
+        light.hass = mock_hass
+        light.entity_id = "light.circadian_test"
+        light._first_update_done = True
+        
+        # Mock async_update_brightness to avoid RuntimeWarning when called via async_create_task
+        light.async_update_brightness = MagicMock()
+        
+        # Set initial circadian state (evening transition started)
+        now = dt_util.as_utc(datetime(2026, 1, 1, 20, 15, 0)) # 15 mins into transition
+        light._brightness = 200 # Current circadian setpoint
+        light._last_set_brightness = 200
+        
+        # Mock brightness refresh to return what we set
+        light._get_current_brightness_with_refresh = AsyncMock(return_value=64)
+        
+        # User adjusts light down to 25% (64)
+        with patch("custom_components.smart_circadian_lighting.state_management.async_save_override_state", AsyncMock()), \
+             patch("custom_components.smart_circadian_lighting.state_management.dt_util.utcnow", return_value=now):
+            
+            event = MagicMock()
+            event.data = {
+                "old_state": State("light.test_zwave", STATE_ON, {"brightness": 200}),
+                "new_state": State("light.test_zwave", STATE_ON, {"brightness": 64})
+            }
+            
+            # This should trigger in-direction soft override
+            await light._async_entity_state_changed(event)
+            
+        assert light._is_overridden is True
+        assert light._is_soft_override is True
+        assert light._soft_override_value == 64
+        assert light._brightness == 64
+        
+        # Verify parameter 18 update was triggered
+        expected_zwave_value = int(64 * 99 / 255) # 24
+        
+        # The update might be async via async_create_task, so we might need to wait or check calls
+        # In state_management.py: light.hass.async_create_task(light.async_update_brightness(force_update=True))
+        # Since we are in a test and using mock_hass, we can check if async_create_task was called 
+        # OR if we manually trigger the update logic.
+        
+        with patch("custom_components.smart_circadian_lighting.light.dt_util.now", return_value=now):
+            await light._async_calculate_and_apply_brightness(force_update=True)
+            
+        mock_hass.services.async_call.assert_any_call(
+            "zwave_js",
+            "set_config_parameter",
+            {
+                "device_id": "test_device_id",
+                "parameter": 18,
+                "value": expected_zwave_value,
+            }
+        )
