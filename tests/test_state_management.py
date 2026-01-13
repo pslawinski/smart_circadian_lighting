@@ -661,10 +661,16 @@ async def real_circadian_light(config, mock_store, mock_entry):
 
     # Mock _set_exact_circadian_targets to call async_update_light with exact targets
     async def mock_set_exact_targets():
+        # Use the current time from the mock if available, otherwise use datetime.now()
+        # This matches how the real implementation uses dt_util.now()
+        from homeassistant.util import dt as dt_util
+        now = dt_util.now()
+
         # Calculate exact current targets (no transition offsets)
         target_brightness = circadian_logic.calculate_brightness(
             0, {}, light._config,
-            light._day_brightness_255, light._night_brightness_255, light._light_entity_id
+            light._day_brightness_255, light._night_brightness_255, light._light_entity_id,
+            now=now
         )
 
         # For testing, use fixed daytime color temp (5000K)
@@ -2867,6 +2873,7 @@ class TestOverrideClearSetsExactCircadianTargets:
         # Mock current time to be daytime (2 PM)
         daytime = datetime(2023, 1, 1, 14, 0, 0)  # 2 PM - daytime
         with patch('homeassistant.helpers.entity_registry.async_get', return_value=entity_registry_mock), \
+             patch('homeassistant.util.dt.now', return_value=daytime), \
              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
             mock_datetime.now.return_value = daytime
 
@@ -2903,6 +2910,7 @@ class TestOverrideClearSetsExactCircadianTargets:
         # Mock current time to be daytime (2 PM)
         daytime = datetime(2023, 1, 1, 14, 0, 0)  # 2 PM - daytime
         with patch('homeassistant.helpers.entity_registry.async_get', return_value=entity_registry_mock), \
+             patch('homeassistant.util.dt.now', return_value=daytime), \
              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
             mock_datetime.now.return_value = daytime
 
@@ -2941,6 +2949,7 @@ class TestOverrideClearSetsExactCircadianTargets:
         # Mock current time to be daytime (2 PM)
         daytime = datetime(2023, 1, 1, 14, 0, 0)  # 2 PM - daytime
         with patch('homeassistant.helpers.entity_registry.async_get', return_value=entity_registry_mock), \
+             patch('homeassistant.util.dt.now', return_value=daytime), \
              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
             mock_datetime.now.return_value = daytime
 

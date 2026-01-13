@@ -4,6 +4,8 @@ import logging
 from datetime import datetime, time, timedelta
 from typing import Any
 
+from homeassistant.util import dt as dt_util
+
 from .const import (
     MIN_BRIGHTNESS_CHANGE_FOR_UPDATE,
     MIN_UPDATE_INTERVAL,
@@ -62,8 +64,16 @@ def _is_time_in_period(now: time, start: time, end: time) -> bool:
 def get_circadian_mode(
     dt: datetime, temp_transition_override: dict[str, Any], config: dict[str, Any]
 ) -> str:
-    """Determine the circadian mode for a specific time."""
-    current_time = dt.time()
+    """Determine the circadian mode for a specific time.
+    
+    The input datetime is converted to local time if it's offset-aware.
+    """
+    from homeassistant.util import dt as dt_util
+    
+    # If dt is naive, assume it's already in the desired (local) time zone for comparison
+    # If it's aware, convert to local time.
+    local_dt = dt_util.as_local(dt) if dt.tzinfo else dt
+    current_time = local_dt.time()
     morning_start_time, morning_end_time = get_transition_times(
         "morning", temp_transition_override, config
     )
@@ -146,7 +156,10 @@ def calculate_brightness_for_time(
     Returns:
         Target brightness (0-255)
     """
-    current_time = dt.time()
+    from homeassistant.util import dt as dt_util
+    
+    local_dt = dt_util.as_local(dt) if dt.tzinfo else dt
+    current_time = local_dt.time()
 
     morning_start_time, morning_end_time = get_transition_times(
         "morning", temp_transition_override, config
@@ -160,7 +173,7 @@ def calculate_brightness_for_time(
     target_brightness = 0.0
 
     log_prefix = f"[{light_entity_id}] " if light_entity_id else ""
-    mode = get_circadian_mode(dt, temp_transition_override, config)
+    mode = get_circadian_mode(local_dt, temp_transition_override, config)
 
     if mode == "morning_transition":
         progress = get_progress(current_time, morning_start_time, morning_end_time)
@@ -196,9 +209,12 @@ def calculate_brightness(
     night_brightness_255: int,
     light_entity_id: str | None = None,
     debug_enable: bool = True,
+    now: datetime | None = None,
 ) -> int:
     """Calculate the target brightness based on the time of day."""
-    now = datetime.now()
+    if now is None:
+        now = dt_util.now()
+        
     if time_offset_seconds > 0:
         now += timedelta(seconds=time_offset_seconds)
 
@@ -219,7 +235,7 @@ def get_seconds_until_next_transition(
     light_entity_id: str | None = None,
 ) -> int:
     """Calculate the number of seconds until the next transition begins."""
-    now = datetime.now()
+    now = dt_util.now()
     current_time = now.time()
 
     morning_start_time, _ = get_transition_times("morning", temp_transition_override, config)
@@ -302,7 +318,7 @@ def get_circadian_update_info(
         _LOGGER.debug(f"[{light_entity_id}] Brightness change too small, skipping update.")
         return None
 
-    now = datetime.now()
+    now = dt_util.now()
     in_morning_transition = is_morning_transition(now, temp_transition_override, config)
     in_evening_transition = is_evening_transition(now, temp_transition_override, config)
 
@@ -314,8 +330,8 @@ def get_circadian_update_info(
         mode = "morning" if in_morning_transition else "evening"
         start_time, end_time = get_transition_times(mode, temp_transition_override, config)
         transition_duration = (
-            datetime.combine(datetime.today(), end_time)
-            - datetime.combine(datetime.today(), start_time)
+            datetime.combine(dt.date(), end_time)
+            - datetime.combine(dt.date(), start_time)
         ).total_seconds()
 
         # Calculate total brightness change for the entire transition

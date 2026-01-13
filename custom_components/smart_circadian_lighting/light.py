@@ -298,14 +298,14 @@ class CircadianLight(LightEntity):
                     elif self._last_set_brightness is not None:
                         current_brightness = new_state.attributes.get(ATTR_BRIGHTNESS)
                         current_color_temp = new_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)
-                        
+
                         # Match brightness within threshold
                         brightness_matches = (
                             current_brightness is not None
                             and abs(current_brightness - self._last_set_brightness)
                             <= self.max_quantization_error
                         )
-                        
+
                         # Match color temp if it was set
                         color_temp_matches = True
                         if self._last_set_color_temp is not None:
@@ -314,7 +314,7 @@ class CircadianLight(LightEntity):
                                 and abs(current_color_temp - self._last_set_color_temp)
                                 <= self._color_temp_manual_override_threshold
                             )
-                            
+
                         if brightness_matches and color_temp_matches:
                             _LOGGER.debug(
                                 f"[{self._light_entity_id}] Light turned on with last set values, updating to current circadian."
@@ -411,13 +411,7 @@ class CircadianLight(LightEntity):
     @property
     def max_quantization_error(self) -> int:
         """Return the maximum quantization error for the light's scale."""
-        if "test" in self._light_entity_id:
-            return 3  # For tests, use max error for truncate conversions
-        if self.is_zwave:
-            return 3  # Max error for 0-99 truncate
-        if self.is_kasa:
-            return 3  # Max error for 0-100 truncate
-        return 0
+        return 3  # Maximum quantization error across all supported scales (HA 0-255 to device 0-99/0-100)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -685,11 +679,16 @@ class CircadianLight(LightEntity):
                         <= self._color_temp_manual_override_threshold
                     )
 
-                    if mode == "evening_transition":
+                    if (current_brightness is not None and matches_last_set_brightness) or (
+                        current_color_temp is not None and matches_last_set_color_temp
+                    ):
+                        _LOGGER.debug(
+                            f"[{self._light_entity_id}] Current state matches last commanded state at transition start. No override."
+                        )
+                    elif mode == "evening_transition":
                         # Evening transition: check if ahead (dimmer than day or warmer than day)
                         if (
-                            not matches_last_set_brightness
-                            and current_brightness is not None
+                            current_brightness is not None
                             and current_brightness
                             < self._day_brightness_255 - self._manual_override_threshold
                         ):
@@ -700,8 +699,7 @@ class CircadianLight(LightEntity):
                                 f"[{self._light_entity_id}] Evening transition start: current brightness {current_brightness} < day brightness {self._day_brightness_255} - threshold {self._manual_override_threshold}, marking as soft override"
                             )
                         if (
-                            not matches_last_set_color_temp
-                            and current_color_temp is not None
+                            current_color_temp is not None
                             and self._color_temp_schedule
                             and current_color_temp
                             < self._config.get("day_color_temp_kelvin", 5000)
@@ -715,8 +713,7 @@ class CircadianLight(LightEntity):
                     elif mode == "morning_transition":
                         # Morning transition: check if ahead (brighter than night or cooler than night)
                         if (
-                            not matches_last_set_brightness
-                            and current_brightness is not None
+                            current_brightness is not None
                             and current_brightness
                             > self._night_brightness_255 + self._manual_override_threshold
                         ):
@@ -727,8 +724,7 @@ class CircadianLight(LightEntity):
                                 f"[{self._light_entity_id}] Morning transition start: current brightness {current_brightness} > night brightness {self._night_brightness_255} + threshold {self._manual_override_threshold}, marking as soft override"
                             )
                         if (
-                            not matches_last_set_color_temp
-                            and current_color_temp is not None
+                            current_color_temp is not None
                             and self._color_temp_schedule
                             and current_color_temp
                             > self._config.get("night_color_temp_kelvin", 1800)
@@ -763,6 +759,7 @@ class CircadianLight(LightEntity):
                 self._day_brightness_255,
                 self._night_brightness_255,
                 self._light_entity_id,
+                now=now,
             )
             transition = update_interval
             _LOGGER.debug(
@@ -776,6 +773,7 @@ class CircadianLight(LightEntity):
                 self._day_brightness_255,
                 self._night_brightness_255,
                 self._light_entity_id,
+                now=now,
             )
             transition = 0
             _LOGGER.debug(
@@ -809,12 +807,15 @@ class CircadianLight(LightEntity):
             if not self._is_overridden:
                 value_to_use = target_brightness_255
             else:
-                if getattr(self, "_is_soft_override", False) and self._soft_override_value is not None:
+                if (
+                    getattr(self, "_is_soft_override", False)
+                    and self._soft_override_value is not None
+                ):
                     value_to_use = self._soft_override_value
                     _LOGGER.debug(
                         f"[{self._light_entity_id}] Using pinned manual brightness {value_to_use} for Z-Wave parameter 18 due to soft override"
                     )
-                elif getattr(self, "_is_in_direction_override", False): # Legacy support / fallback
+                elif getattr(self, "_is_in_direction_override", False):  # Legacy support / fallback
                     value_to_use = self._brightness
                     _LOGGER.debug(
                         f"[{self._light_entity_id}] Using manual brightness {value_to_use} for Z-Wave parameter 18 due to in-direction override"
@@ -848,9 +849,13 @@ class CircadianLight(LightEntity):
                         )
                         self._last_zwave_param_18 = zwave_brightness
                     except TimeoutError:
-                        _LOGGER.warning(f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18.")
+                        _LOGGER.warning(
+                            f"[{self._light_entity_id}] Timeout setting Z-Wave parameter 18."
+                        )
                     except HomeAssistantError as e:
-                        _LOGGER.error(f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}")
+                        _LOGGER.error(
+                            f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}"
+                        )
 
         if skip_physical_update:
             _LOGGER.debug(
