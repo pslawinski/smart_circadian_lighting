@@ -223,11 +223,12 @@ async def async_clear_manual_override(light: CircadianLight) -> None:
         light._is_in_direction_override = False
         light._is_soft_override = False
         light._soft_override_value = None
+        light._override_timestamp = None
         # Cancel any scheduled expiration callback
         if light._expiration_callback_handle:
             light._expiration_callback_handle()
             light._expiration_callback_handle = None
-        await async_save_override_state(light)
+        light._hass.async_create_task(async_save_override_state(light))
     await light.async_force_update_circadian()
 
 
@@ -293,6 +294,53 @@ async def _check_for_manual_override(
     if not is_transition:
         return
 
+    brightness_override = False
+
+    # Check for manual intervention during active hardware transition
+    if light._hardware_transition_active:
+        extreme = light._hardware_transition_extreme_brightness
+        if extreme is not None:
+            if light._hardware_transition_is_morning:
+                # Morning transition: against direction is dimming
+                if new_brightness < extreme - light._manual_override_threshold:
+                    # Must also deviate from circadian setpoint
+                    if new_brightness < light._brightness - light._manual_override_threshold:
+                        brightness_override = True
+                        _LOGGER.debug(
+                            f"[{light._light_entity_id}] Manual intervention detected during morning hardware transition: "
+                            f"brightness {new_brightness} < extreme {extreme} - threshold {light._manual_override_threshold} "
+                            f"and < setpoint {light._brightness} - threshold"
+                        )
+            else:
+                # Evening transition: against direction is brightening
+                if new_brightness > extreme + light._manual_override_threshold:
+                    if new_brightness > light._brightness + light._manual_override_threshold:
+                        brightness_override = True
+                        _LOGGER.debug(
+                            f"[{light._light_entity_id}] Manual intervention detected during evening hardware transition: "
+                            f"brightness {new_brightness} > extreme {extreme} + threshold {light._manual_override_threshold} "
+                            f"and > setpoint {light._brightness} + threshold"
+                        )
+
+    # Check if brightness is within expected hardware transition range
+    if light._hardware_transition_active:
+        start = light._hardware_transition_start_brightness
+        target = light._hardware_transition_target_brightness
+        if start is not None and target is not None:
+            min_val = min(start, target)
+            max_val = max(start, target)
+            error = light.max_quantization_error
+            if min_val - error <= new_brightness <= max_val + error:
+                # Within expected hardware transition range, no normal override
+                _LOGGER.debug(
+                    f"[{light._light_entity_id}] Brightness {new_brightness} is within hardware transition range [{min_val-error}, {max_val+error}], no normal override"
+                )
+                # But manual intervention may have already triggered override above
+                if brightness_override:
+                    pass  # Proceed to set override
+                else:
+                    return
+
     is_morning = circadian_logic.is_morning_transition(
         now, light._temp_transition_override, light._config
     )
@@ -310,7 +358,6 @@ async def _check_for_manual_override(
     if effective_old_color_temp is None and light._color_temp_kelvin is not None:
         effective_old_color_temp = int(light._color_temp_kelvin)
 
-    brightness_override = False
     is_soft_override = False
     is_in_direction = False
     color_temp_override = False
@@ -356,6 +403,7 @@ async def _check_for_manual_override(
                         _LOGGER.debug(
                             f"{'Morning' if is_morning else 'Evening'} Z-Wave in-direction soft override detected: new={new_brightness}, old={effective_old_brightness}, diff={brightness_diff}"
                         )
+
 
         # Soft override detection: user adjusts in the same direction as the transition at transition start
         if (

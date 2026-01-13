@@ -630,6 +630,9 @@ async def real_circadian_light(config, mock_store, mock_entry):
     mock_hass.states.get.return_value = None
     mock_hass.bus.async_fire = AsyncMock()
 
+    # Mock async_create_task to return a mock task to avoid "coroutine never awaited" warnings
+    mock_hass.async_create_task = MagicMock(return_value=MagicMock())
+
     # Set up the basic attributes
     light._hass = mock_hass
     light._light_entity_id = "light.test"
@@ -2873,8 +2876,9 @@ class TestOverrideClearSetsExactCircadianTargets:
         # Mock current time to be daytime (2 PM)
         daytime = datetime(2023, 1, 1, 14, 0, 0)  # 2 PM - daytime
         with patch('homeassistant.helpers.entity_registry.async_get', return_value=entity_registry_mock), \
-             patch('homeassistant.util.dt.now', return_value=daytime), \
-             patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
+              patch('homeassistant.util.dt.now', return_value=daytime), \
+              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
+              patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state', MagicMock()):
             mock_datetime.now.return_value = daytime
 
             # Clear override
@@ -2910,8 +2914,9 @@ class TestOverrideClearSetsExactCircadianTargets:
         # Mock current time to be daytime (2 PM)
         daytime = datetime(2023, 1, 1, 14, 0, 0)  # 2 PM - daytime
         with patch('homeassistant.helpers.entity_registry.async_get', return_value=entity_registry_mock), \
-             patch('homeassistant.util.dt.now', return_value=daytime), \
-             patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
+              patch('homeassistant.util.dt.now', return_value=daytime), \
+              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
+              patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state', MagicMock()):
             mock_datetime.now.return_value = daytime
 
             # Clear override
@@ -2949,8 +2954,9 @@ class TestOverrideClearSetsExactCircadianTargets:
         # Mock current time to be daytime (2 PM)
         daytime = datetime(2023, 1, 1, 14, 0, 0)  # 2 PM - daytime
         with patch('homeassistant.helpers.entity_registry.async_get', return_value=entity_registry_mock), \
-             patch('homeassistant.util.dt.now', return_value=daytime), \
-             patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime:
+              patch('homeassistant.util.dt.now', return_value=daytime), \
+              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
+              patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state', MagicMock()):
             mock_datetime.now.return_value = daytime
 
             # Clear override

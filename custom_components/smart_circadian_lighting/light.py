@@ -137,6 +137,13 @@ class CircadianLight(LightEntity):
         self._last_set_brightness = None
         self._last_set_color_temp = None
 
+        # Hardware transition tracking for override prevention
+        self._hardware_transition_active = False
+        self._hardware_transition_start_brightness = None
+        self._hardware_transition_target_brightness = None
+        self._hardware_transition_extreme_brightness = None
+        self._hardware_transition_is_morning = None
+
         if light_state:
             self._last_reported_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
 
@@ -260,7 +267,19 @@ class CircadianLight(LightEntity):
                 self._hass.async_create_task(self.async_force_update_circadian())
             else:
                 # If the light is online, handle other state changes
+                new_brightness = new_state.attributes.get(ATTR_BRIGHTNESS)
                 await state_management.handle_entity_state_changed(self, event)
+
+                # Update hardware transition extreme tracking
+                if self._hardware_transition_active and new_brightness is not None:
+                    if self._hardware_transition_is_morning:
+                        self._hardware_transition_extreme_brightness = max(
+                            self._hardware_transition_extreme_brightness or new_brightness, new_brightness
+                        )
+                    else:
+                        self._hardware_transition_extreme_brightness = min(
+                            self._hardware_transition_extreme_brightness or new_brightness, new_brightness
+                        )
 
                 # Check if Z-Wave light just turned off and clear override
                 if old_state and old_state.state == STATE_ON and new_state.state == STATE_OFF:
@@ -923,6 +942,20 @@ class CircadianLight(LightEntity):
                 f"[{self._light_entity_id}] Updating internal color temperature from {self.color_temp} mired to {self._color_temp_mired} mired ({self._color_temp_kelvin}K)"
             )
             self.async_write_ha_state()
+
+        # Set hardware transition tracking before sending the command
+        if transition > 0:
+            light_state = self._hass.states.get(self._light_entity_id)
+            if light_state and light_state.state == STATE_ON:
+                current_brightness = light_state.attributes.get(ATTR_BRIGHTNESS)
+                if current_brightness is not None:
+                    self._hardware_transition_active = True
+                    self._hardware_transition_start_brightness = current_brightness
+                    self._hardware_transition_target_brightness = target_brightness_255
+                    self._hardware_transition_extreme_brightness = current_brightness
+                    self._hardware_transition_is_morning = is_currently_transition and mode == "morning_transition"
+        else:
+            self._hardware_transition_active = False
 
         self._last_update_time = now
         _LOGGER.debug(
