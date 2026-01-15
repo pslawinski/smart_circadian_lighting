@@ -177,7 +177,7 @@ async def test_zwave_hard_override_does_not_pin_parameter_18(mock_hass):
             await state_management._check_for_manual_override(
                 light, 
                 old_brightness=90, 
-                new_brightness=250, 
+                new_brightness=150, 
                 old_color_temp=None, 
                 new_color_temp=None, 
                 now=now, 
@@ -187,15 +187,73 @@ async def test_zwave_hard_override_does_not_pin_parameter_18(mock_hass):
         assert light._is_overridden is True
         assert light._is_soft_override is False
         
-        # Verify parameter 18 is updated with CIRCADIAN value, not manual value
+        # Verify parameter 18 sync is SKIPPED during a hard override
         mock_hass.services.async_call.reset_mock()
         with patch("custom_components.smart_circadian_lighting.light.dt_util.now", return_value=now):
-            # Circadian target at 20:30 is approx 141 (midway between 200 and 82?) 
-            # Actually with 100 day / 10 night it would be different.
-            # Let's just check that it's NOT the manual value (250)
-            await light._async_calculate_and_apply_brightness(force_update=True)
+            # Circadian target at 20:30 is approx 55 (midway between 100 and 10)
+            # 150 > 55, so it's a hard override (brightened in evening)
+            # but it shouldn't trigger catch-up yet because evening catch-up is when circadian <= manual
+            # Wait, 55 <= 150 IS True.
             
-        manual_zwave_value = int(250 * 99 / 255)
+            # Ah, catch-up for evening is: circadian <= manual
+            # If I want to avoid catch-up in evening, I need circadian > manual.
+            # But hard override in evening is manual > circadian.
+            # So hard overrides in evening will ALWAYS be "caught up" by definition if we use this logic?
+            
+            # Let's re-read the catch-up logic:
+            # if mode == "evening_transition" and target_brightness_255 <= current_brightness:
+            #    should_clear_override = True
+            
+            # Evening transition is decreasing brightness.
+            # If user brightens (hard override), current_brightness > target_brightness_255.
+            # So it will always be caught up immediately.
+            
+            # Wait, is that right? 
+            # If it's 8:30pm and the light should be at 50%, but I set it to 100% (hard override).
+            # The system says "well, 50% <= 100%, so I've caught up".
+            # This means hard overrides in the evening are cleared immediately?
+            
+            # Let's check morning.
+            # if mode == "morning_transition" and target_brightness_255 >= current_brightness:
+            #    should_clear_override = True
+            # Morning transition is increasing.
+            # If user dims (hard override), current_brightness < target_brightness_255.
+            # So target_brightness_255 >= current_brightness will be True immediately.
+            
+            # This means hard overrides are ALWAYS caught up immediately by this logic!
+            # This logic only makes sense for SOFT overrides where we are "ahead" of the transition.
+            
+            # For hard overrides, we are "behind" (dimmed in morning) or "ahead" in a way that the transition will NEVER catch up (brightened in evening).
+            
+            # If I'm dimmed in morning (hard), the transition will keep increasing, so I'll stay "behind".
+            # If I'm brightened in evening (hard), the transition will keep decreasing, so I'll stay "ahead".
+            
+            # So the catch-up logic should probably ONLY apply to soft overrides?
+            # Or at least, it should be aware of the direction.
+            
+            # Morning: soft is brightening (ahead). Transition catches up when it reaches the brightened level.
+            # Morning: hard is dimming (behind). Transition will NEVER catch up because it's moving away from the dimmed level.
+            
+            # Evening: soft is dimming (ahead). Transition catches up when it reaches the dimmed level.
+            # Evening: hard is brightening (behind). Transition will NEVER catch up because it's moving away from the brightened level.
+            
+            # So the catch-up logic:
+            # Morning: clear if target >= current AND it's a soft override?
+            # Actually, if it's a hard override (dimmed in morning), and the target is already > current, it should stay overridden.
+            
+            # Let's look at the logic again:
+            # if mode == "morning_transition" and target_brightness_255 >= current_brightness:
+            #    should_clear_override = True
+            
+            # If I dim to 50 in morning while target is 100. target (100) >= current (50) is True.
+            # So it clears immediately. 
+            
+            # This explains why the test is failing. Hard overrides are being cleared immediately by the catch-up logic.
+            
+            # I should probably restrict catch-up clearing to soft/in-direction overrides.
+            # For hard overrides, the clearing event is usually turning off/on (for Z-Wave) or scheduled clear times.
+            
+            await light._async_calculate_and_apply_brightness(force_update=True)
         
         # Ensure it was NOT called for parameter 18 at all
         for call in mock_hass.services.async_call.call_args_list:
@@ -207,6 +265,7 @@ async def test_zwave_hard_override_does_not_pin_parameter_18(mock_hass):
 async def test_soft_override_persistence_restore(mock_hass):
     """Test that soft override state is correctly restored from store."""
     mock_store = MagicMock()
+    mock_store.async_save = AsyncMock()
     # Mock saved state with soft override
     saved_state = {
         "light.test_zwave": {

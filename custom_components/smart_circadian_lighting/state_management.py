@@ -10,7 +10,12 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, SIGNAL_OVERRIDE_STATE_CHANGED
+from .const import (
+    DEFAULT_EVENING_OVERRIDE_CLEAR_TIME,
+    DEFAULT_MORNING_OVERRIDE_CLEAR_TIME,
+    DOMAIN,
+    SIGNAL_OVERRIDE_STATE_CHANGED,
+)
 
 if TYPE_CHECKING:
     from .light import CircadianLight
@@ -26,8 +31,12 @@ def check_override_expiration(light: CircadianLight) -> bool:
     now = dt_util.now()
     if not now.tzinfo:
         now = dt_util.as_local(now)
-    morning_clear_time_str = light._config["morning_override_clear_time"]
-    evening_clear_time_str = light._config["evening_override_clear_time"]
+    morning_clear_time_str = light._config.get(
+        "morning_override_clear_time", DEFAULT_MORNING_OVERRIDE_CLEAR_TIME
+    )
+    evening_clear_time_str = light._config.get(
+        "evening_override_clear_time", DEFAULT_EVENING_OVERRIDE_CLEAR_TIME
+    )
 
     try:
         morning_clear_time = time.fromisoformat(morning_clear_time_str)
@@ -75,8 +84,12 @@ def _calculate_next_clear_time(light: CircadianLight) -> datetime:
         now = dt_util.now()
     if not now.tzinfo:
         now = dt_util.as_local(now)
-    morning_clear_time_str = light._config["morning_override_clear_time"]
-    evening_clear_time_str = light._config["evening_override_clear_time"]
+    morning_clear_time_str = light._config.get(
+        "morning_override_clear_time", DEFAULT_MORNING_OVERRIDE_CLEAR_TIME
+    )
+    evening_clear_time_str = light._config.get(
+        "evening_override_clear_time", DEFAULT_EVENING_OVERRIDE_CLEAR_TIME
+    )
 
     try:
         morning_clear_time = time.fromisoformat(morning_clear_time_str)
@@ -114,16 +127,26 @@ def _calculate_next_clear_time(light: CircadianLight) -> datetime:
 
 
 async def _async_clear_override_callback(light: CircadianLight) -> None:
-    """Callback to clear an expired override."""
-    if light._is_overridden:
+    """Callback to clear an expired override and sync Z-Wave parameter 18."""
+    is_overridden = light._is_overridden
+    if is_overridden:
         _LOGGER.info(
             f"[{light._light_entity_id}] Scheduled override expiration triggered for {light.name}"
         )
         light._is_overridden = False
         light._expiration_callback_handle = None
-        await async_save_override_state(light)
-        # Set exact circadian targets
+
+    # For Z-Wave lights, we always want to ensure parameter 18 is synced at clear times.
+    if light.is_zwave:
+        _LOGGER.debug(f"[{light._light_entity_id}] Syncing Z-Wave parameter 18 at clear time")
+        # _async_calculate_and_apply_brightness(force_update=True) handles parameter 18.
+        await light._async_calculate_and_apply_brightness(force_update=True)
+    elif is_overridden:
+        # Set exact circadian targets for non-zwave lights that were overridden
         await light._set_exact_circadian_targets()
+
+    # Always save state which also schedules the next clear time (for Z-Wave or if still overridden)
+    await async_save_override_state(light)
 
 
 def _create_clear_override_callback(light: CircadianLight):
@@ -153,8 +176,8 @@ async def async_save_override_state(light: CircadianLight) -> None:
         f"[{light._light_entity_id}] Saved override state for {light.name}: {light._is_overridden} (in_direction: {getattr(light, '_is_in_direction_override', False)})"
     )
 
-    # Schedule or cancel expiration callback based on override state
-    if light._is_overridden:
+    # Schedule or cancel expiration callback based on override state or Z-Wave status
+    if light._is_overridden or light.is_zwave:
         # Cancel any existing callback
         if light._expiration_callback_handle:
             light._expiration_callback_handle()
@@ -167,7 +190,7 @@ async def async_save_override_state(light: CircadianLight) -> None:
         delay_seconds = (dt_util.as_utc(next_clear_time) - dt_util.as_utc(now)).total_seconds()
         if delay_seconds > 0:
             _LOGGER.debug(
-                f"[{light._light_entity_id}] Scheduling override expiration for {light.name} in {delay_seconds} seconds (at {next_clear_time})"
+                f"[{light._light_entity_id}] Scheduling override/Z-Wave sync for {light.name} in {delay_seconds} seconds (at {next_clear_time})"
             )
             light._expiration_callback_handle = async_call_later(
                 light._hass, delay_seconds, _create_clear_override_callback(light)
@@ -178,7 +201,7 @@ async def async_save_override_state(light: CircadianLight) -> None:
             )
             await _async_clear_override_callback(light)
     else:
-        # Clear any existing callback when override is removed
+        # Clear any existing callback when override is removed and not Z-Wave
         if light._expiration_callback_handle:
             light._expiration_callback_handle()
             light._expiration_callback_handle = None
@@ -213,6 +236,12 @@ async def async_load_override_state(light: CircadianLight) -> None:
             light._is_overridden = False
             light._override_timestamp = None
             await async_save_override_state(light)
+        elif light._is_overridden or light.is_zwave:
+            # Schedule callback for active override or Z-Wave sync
+            await async_save_override_state(light)
+    elif light.is_zwave:
+        # Schedule callback for Z-Wave sync even if no saved state
+        await async_save_override_state(light)
 
 
 async def async_clear_manual_override(light: CircadianLight) -> None:

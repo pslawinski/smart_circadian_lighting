@@ -281,37 +281,36 @@ class CircadianLight(LightEntity):
                             self._hardware_transition_extreme_brightness or new_brightness, new_brightness
                         )
 
-                # Check if Z-Wave light just turned off and clear override
+                # Check if light just turned off and clear hard overrides
                 if old_state and old_state.state == STATE_ON and new_state.state == STATE_OFF:
-                    entity_registry = er.async_get(self._hass)
-                    entity_entry = entity_registry.async_get(self._light_entity_id)
-                    is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
+                    if self._is_overridden:
+                        is_soft = getattr(self, "_is_soft_override", False)
+                        is_in_direction = getattr(self, "_is_in_direction_override", False)
 
-                    if is_zwave_light and self._is_overridden:
-                        # Only clear the override if it's NOT an in-direction override
-                        if not getattr(self, "_is_in_direction_override", False):
+                        if not (is_soft or is_in_direction):
                             _LOGGER.debug(
-                                f"[{self._light_entity_id}] Z-Wave light turned off, clearing manual override"
+                                f"[{self._light_entity_id}] Light turned off, clearing hard manual override"
                             )
                             self._is_overridden = False
-                            await state_management.async_save_override_state(self)
                         else:
                             _LOGGER.debug(
-                                f"[{self._light_entity_id}] Z-Wave light turned off, persisting in-direction override"
+                                f"[{self._light_entity_id}] Light turned off, persisting {'soft' if is_soft else 'in-direction'} override"
                             )
+
+                        await state_management.async_save_override_state(self)
+
+                        # Sync parameter 18 for Z-Wave lights (handles pinned value for soft overrides, circadian for cleared/hard overrides)
+                        if self.is_zwave:
+                            await self._async_calculate_and_apply_brightness(force_update=True)
 
                 # Check if light just turned on and needs circadian update
                 if old_state and old_state.state != STATE_ON and new_state.state == STATE_ON:
                     # Light just turned on
                     should_update = False
 
-                    entity_registry = er.async_get(self._hass)
-                    entity_entry = entity_registry.async_get(self._light_entity_id)
-                    is_zwave_light = entity_entry and entity_entry.platform == "zwave_js"
-
-                    if is_zwave_light and getattr(self, "_is_soft_override", False):
+                    if getattr(self, "_is_soft_override", False):
                         _LOGGER.debug(
-                            f"[{self._light_entity_id}] Z-Wave light turned on with soft override active. Skipping immediate circadian update to respect preloaded brightness."
+                            f"[{self._light_entity_id}] Light turned on with soft override active. Skipping immediate circadian update to respect manual brightness."
                         )
                         should_update = False
                     elif self._last_set_brightness is not None:
@@ -876,6 +875,54 @@ class CircadianLight(LightEntity):
                             f"[{self._light_entity_id}] Error setting Z-Wave parameter 18: {e}"
                         )
 
+        if self._is_overridden:
+            # Skip override clearing check if override was just detected in this cycle
+            if override_just_detected:
+                _LOGGER.debug(
+                    f"[{self._light_entity_id}] Override just detected, skipping clear check until next cycle."
+                )
+                if not skip_physical_update:
+                    return
+            else:
+                current_brightness = await self._get_current_brightness_with_refresh()
+
+                # If light is OFF, use the pinned manual brightness for catch-up comparison
+                if current_brightness is None and skip_physical_update:
+                    current_brightness = self._brightness
+                    _LOGGER.debug(
+                        f"[{self._light_entity_id}] Light is off, using pinned brightness {current_brightness} for catch-up check."
+                    )
+
+                if current_brightness is not None:
+                    # Clear override if circadian has caught up to the manual level (only for soft/in-direction overrides)
+                    should_clear_override = False
+                    is_soft = getattr(self, "_is_soft_override", False)
+                    is_in_direction = getattr(self, "_is_in_direction_override", False)
+
+                    if is_soft or is_in_direction:
+                        if mode == "morning_transition" and target_brightness_255 >= current_brightness:
+                            should_clear_override = True
+                        elif mode == "evening_transition" and target_brightness_255 <= current_brightness:
+                            should_clear_override = True
+
+                    if should_clear_override:
+                        _LOGGER.info(
+                            f"[{self._light_entity_id}] Circadian brightness has caught up to manual override. Clearing override."
+                        )
+                        self._is_overridden = False
+                        await state_management.async_save_override_state(self)
+                        if is_zwave_light:
+                            await self._async_calculate_and_apply_brightness(force_update=True)
+                            return
+                        elif not skip_physical_update:
+                            await self._set_exact_circadian_targets()
+                            return
+                    elif not skip_physical_update:
+                        _LOGGER.debug(
+                            f"[{self._light_entity_id}] Skipping: manually overridden. Target: {target_brightness_255}, Current: {current_brightness}"
+                        )
+                        return
+
         if skip_physical_update:
             _LOGGER.debug(
                 f"[{self._light_entity_id}] Skipping physical light update for {self.name}: light is off."
@@ -885,42 +932,6 @@ class CircadianLight(LightEntity):
                 self._brightness = target_brightness_255
             self.async_write_ha_state()
             return
-
-        if self._is_overridden:
-            # Skip override clearing check if override was just detected in this cycle
-            if override_just_detected:
-                _LOGGER.debug(
-                    f"[{self._light_entity_id}] Override just detected, skipping clear check until next cycle."
-                )
-                return
-
-            current_brightness = await self._get_current_brightness_with_refresh()
-            if current_brightness is None:
-                _LOGGER.debug(
-                    f"[{self._light_entity_id}] Skipping: overridden but failed to get current brightness."
-                )
-                return
-
-            # Clear override if circadian has caught up to the manual level
-            should_clear_override = False
-
-            if mode == "morning_transition" and target_brightness_255 >= current_brightness:
-                should_clear_override = True
-            elif mode == "evening_transition" and target_brightness_255 <= current_brightness:
-                should_clear_override = True
-
-            if should_clear_override:
-                _LOGGER.info(
-                    f"[{self._light_entity_id}] Circadian brightness has caught up to manual override. Clearing override."
-                )
-                self._is_overridden = False
-                await state_management.async_save_override_state(self)
-                await self._set_exact_circadian_targets()
-            else:
-                _LOGGER.debug(
-                    f"[{self._light_entity_id}] Skipping: manually overridden. Target: {target_brightness_255}, Current: {current_brightness}"
-                )
-                return
 
         if transition_override is not None:
             transition = transition_override
@@ -985,27 +996,8 @@ class CircadianLight(LightEntity):
             self._is_overridden = False
             await state_management.async_save_override_state(self)
 
-        target_brightness = circadian_logic.calculate_brightness(
-            0,
-            self._temp_transition_override,
-            self._config,
-            self._day_brightness_255,
-            self._night_brightness_255,
-            self._light_entity_id,
-        )
-
-        # Always calculate current color temperature
-        now = dt_util.now()
-        self._color_temp_kelvin = get_ct_at_time(self._color_temp_schedule, now.time())
-        if self._color_temp_kelvin:
-            self._color_temp_mired = kelvin_to_mired(self._color_temp_kelvin)
-            self._attr_color_temp_kelvin = self._color_temp_kelvin
-
-        # Always proceed with update for online lights
-        # The _apply_light_state_checks will handle on/off logic appropriately
-        self._brightness = target_brightness
-        self.async_write_ha_state()
-        await self.async_update_light(transition=0, force_update=True)
+        # Use the main calculation and application path with force_update=True
+        await self._async_calculate_and_apply_brightness(force_update=True, transition_override=0)
 
     async def async_config_updated(self) -> None:
         """Handle configuration updates by recalculating targets and rescheduling."""
