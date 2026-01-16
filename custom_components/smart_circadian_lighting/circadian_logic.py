@@ -65,11 +65,11 @@ def get_circadian_mode(
     dt: datetime, temp_transition_override: dict[str, Any], config: dict[str, Any]
 ) -> str:
     """Determine the circadian mode for a specific time.
-    
+
     The input datetime is converted to local time if it's offset-aware.
     """
     from homeassistant.util import dt as dt_util
-    
+
     # If dt is naive, assume it's already in the desired (local) time zone for comparison
     # If it's aware, convert to local time.
     local_dt = dt_util.as_local(dt) if dt.tzinfo else dt
@@ -157,7 +157,7 @@ def calculate_brightness_for_time(
         Target brightness (0-255)
     """
     from homeassistant.util import dt as dt_util
-    
+
     local_dt = dt_util.as_local(dt) if dt.tzinfo else dt
     current_time = local_dt.time()
 
@@ -214,7 +214,7 @@ def calculate_brightness(
     """Calculate the target brightness based on the time of day."""
     if now is None:
         now = dt_util.now()
-        
+
     if time_offset_seconds > 0:
         now += timedelta(seconds=time_offset_seconds)
 
@@ -330,8 +330,8 @@ def get_circadian_update_info(
         mode = "morning" if in_morning_transition else "evening"
         start_time, end_time = get_transition_times(mode, temp_transition_override, config)
         transition_duration = (
-            datetime.combine(dt.date(), end_time)
-            - datetime.combine(dt.date(), start_time)
+            datetime.combine(now.date(), end_time)
+            - datetime.combine(now.date(), start_time)
         ).total_seconds()
 
         # Calculate total brightness change for the entire transition

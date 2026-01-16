@@ -35,7 +35,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def mock_homeassistant_modules():
     """Fixture to mock HA modules with proper isolation per test.
-    
+
     This isolates the mocking to individual tests, preventing sys.modules
     pollution that would affect other test modules.
     """
@@ -594,7 +594,7 @@ class TestGetCtAtTime:
         if not entity_config["config"]["color_temp_enabled"]:
             pytest.skip("Test only for enabled entities")
         # Test the graph generation points using scheduler simulation over multiple days for repeatability
-        for day_offset in range(3):  # Test over 3 days
+        for _day_offset in range(3):  # Test over 3 days
             points = simulate_scheduler_for_graph(schedule, entity_config["config"])
 
             # Verify we have points

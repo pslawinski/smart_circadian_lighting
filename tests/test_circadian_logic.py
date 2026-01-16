@@ -34,7 +34,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def mock_homeassistant_modules():
     """Fixture to mock HA modules with proper isolation per test.
-    
+
     This isolates the mocking to individual tests, preventing sys.modules
     pollution that would affect other test modules.
     """

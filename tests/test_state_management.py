@@ -151,13 +151,13 @@ class TestCheckOverrideExpiration:
     def test_no_override(self, mock_light):
         """Test when light is not overridden."""
         mock_light._is_overridden = False
-        assert check_override_expiration(mock_light) == False
+        assert not check_override_expiration(mock_light)
 
     def test_no_timestamp(self, mock_light):
         """Test when override has no timestamp."""
         mock_light._is_overridden = True
         mock_light._override_timestamp = None
-        assert check_override_expiration(mock_light) == False
+        assert not check_override_expiration(mock_light)
 
     def test_override_not_expired_morning(self, mock_light):
         """Test override not expired during morning hours."""
@@ -169,7 +169,7 @@ class TestCheckOverrideExpiration:
         mock_dt_util = MagicMock()
         mock_dt_util.now.return_value = current_time
 
-        assert check_override_expiration(mock_light, mock_dt_util) == False
+        assert not check_override_expiration(mock_light, mock_dt_util)
 
     def test_override_expired_morning(self, mock_light):
         """Test override expired after morning clear time."""
@@ -181,7 +181,7 @@ class TestCheckOverrideExpiration:
         mock_dt_util = MagicMock()
         mock_dt_util.now.return_value = current_time
 
-        assert check_override_expiration(mock_light, mock_dt_util) == True
+        assert check_override_expiration(mock_light, mock_dt_util)
 
     def test_override_expired_evening(self, mock_light):
         """Test override expired after evening clear time."""
@@ -193,7 +193,7 @@ class TestCheckOverrideExpiration:
         mock_dt_util = MagicMock()
         mock_dt_util.now.return_value = current_time
 
-        assert check_override_expiration(mock_light, mock_dt_util) == True
+        assert check_override_expiration(mock_light, mock_dt_util)
 
     def test_override_not_expired_evening(self, mock_light):
         """Test override not expired before evening clear time."""
@@ -205,7 +205,7 @@ class TestCheckOverrideExpiration:
         mock_dt_util = MagicMock()
         mock_dt_util.now.return_value = current_time
 
-        assert check_override_expiration(mock_light, mock_dt_util) == False
+        assert not check_override_expiration(mock_light, mock_dt_util)
 
     def test_override_from_previous_day(self, mock_light):
         """Test override from previous day expired."""
@@ -217,7 +217,7 @@ class TestCheckOverrideExpiration:
         mock_dt_util = MagicMock()
         mock_dt_util.now.return_value = current_time
 
-        assert check_override_expiration(mock_light, mock_dt_util) == True
+        assert check_override_expiration(mock_light, mock_dt_util)
 
     def test_invalid_clear_time_format(self, mock_light):
         """Test handling of invalid clear time format."""
@@ -226,7 +226,7 @@ class TestCheckOverrideExpiration:
         mock_light._override_timestamp = datetime(2023, 1, 1, 7, 0, 0)
 
         # Should not expire due to invalid config
-        assert check_override_expiration(mock_light) == False
+        assert not check_override_expiration(mock_light)
 
     @pytest.mark.asyncio
     async def test_color_temp_override_expires_morning(self, mock_light):
@@ -237,7 +237,7 @@ class TestCheckOverrideExpiration:
 
         # Trigger color temp override at 7 AM (before morning clear time of 8 AM)
         await check_for_manual_override(mock_light, None, None, 3000, 3200, datetime(2023, 1, 1, 7, 0, 0))
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
         assert mock_light._override_timestamp == datetime(2023, 1, 1, 7, 0, 0)
 
         # Advance time past morning clear time (8:00 AM) to 9 AM
@@ -246,7 +246,7 @@ class TestCheckOverrideExpiration:
         mock_dt_util.now.return_value = current_time
 
         # Override should be expired (7 AM < 8 AM last clear time)
-        assert check_override_expiration(mock_light, mock_dt_util) == True
+        assert check_override_expiration(mock_light, mock_dt_util)
 
     @pytest.mark.asyncio
     async def test_color_temp_override_expires_evening(self, mock_light):
@@ -257,7 +257,7 @@ class TestCheckOverrideExpiration:
 
         # Trigger color temp override
         await check_for_manual_override(mock_light, None, None, 3000, 3200, datetime(2023, 1, 1, 21, 0, 0))
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
         assert mock_light._override_timestamp == datetime(2023, 1, 1, 21, 0, 0)
 
         # Advance time past evening clear time (2:00 AM next day)
@@ -266,7 +266,7 @@ class TestCheckOverrideExpiration:
         mock_dt_util.now.return_value = current_time
 
         # Override should be expired
-        assert check_override_expiration(mock_light, mock_dt_util) == True
+        assert check_override_expiration(mock_light, mock_dt_util)
 
     @pytest.mark.asyncio
     async def test_color_temp_override_not_expired_before_clear_time(self, mock_light):
@@ -277,7 +277,7 @@ class TestCheckOverrideExpiration:
 
         # Trigger color temp override
         await check_for_manual_override(mock_light, None, None, 3000, 3200, datetime(2023, 1, 1, 21, 0, 0))
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
 
         # Check before evening clear time (1:00 AM next day, before 2 AM clear)
         current_time = datetime(2023, 1, 2, 1, 0, 0)  # 1 AM next day, before 2 AM clear
@@ -285,7 +285,7 @@ class TestCheckOverrideExpiration:
         mock_dt_util.now.return_value = current_time
 
         # Override should NOT be expired
-        assert check_override_expiration(mock_light, mock_dt_util) == False
+        assert not check_override_expiration(mock_light, mock_dt_util)
 
     @pytest.mark.asyncio
     async def test_morning_transition_final_update_sets_day_brightness(self, real_circadian_light):
@@ -725,37 +725,37 @@ async def real_circadian_light(config, mock_store, mock_entry):
         """Test that override detection is skipped before first update."""
         mock_light._first_update_done = False
         await check_for_manual_override(mock_light, 100, 150, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_no_override_detection_outside_transition(self, mock_light):
         """Test that override detection only happens during transitions."""
         # Day time (not in transition)
         await check_for_manual_override(mock_light, 100, 150, None, None, datetime(2023, 1, 1, 14, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_no_override_detection_missing_brightness(self, mock_light):
         """Test that override detection requires valid brightness values."""
         # Missing old_brightness
         await check_for_manual_override(mock_light, None, 150, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
         # Missing new_brightness
         await check_for_manual_override(mock_light, 100, None, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
         # Missing light brightness
         mock_light._brightness = None
         await check_for_manual_override(mock_light, 100, 150, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_morning_transition_brightening_no_override(self, mock_light):
         """Test brightening during morning transition doesn't trigger override."""
         # Morning transition: user brightens from 100 to 150 (with transition direction)
         await check_for_manual_override(mock_light, 100, 150, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_morning_transition_dimming_within_threshold_no_override(self, mock_light):
@@ -763,7 +763,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         # Morning transition: user dims from 140 to 130 (against transition, but within threshold)
         # 130 > (128 - 5) = 123, so no override
         await check_for_manual_override(mock_light, 140, 130, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_morning_transition_dimming_beyond_threshold_override(self, mock_light):
@@ -771,14 +771,14 @@ async def real_circadian_light(config, mock_store, mock_entry):
         # Morning transition: user dims from 140 to 115 (against transition, beyond threshold)
         # 115 < (128 - 5) = 123, so override triggered
         await check_for_manual_override(mock_light, 140, 115, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_evening_transition_dimming_no_override(self, mock_light):
         """Test dimming during evening transition doesn't trigger override."""
         # Evening transition: user dims from 150 to 100 (with transition direction)
         await check_for_manual_override(mock_light, 150, 100, None, None, datetime(2023, 1, 1, 21, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_evening_transition_brightening_within_threshold_no_override(self, mock_light):
@@ -786,7 +786,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         # Evening transition: user brightens from 120 to 130 (against transition, but within threshold)
         # 130 < (128 + 5) = 133, so no override
         await check_for_manual_override(mock_light, 120, 130, None, None, datetime(2023, 1, 1, 21, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_evening_transition_brightening_beyond_threshold_override(self, mock_light):
@@ -794,7 +794,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         # Evening transition: user brightens from 120 to 140 (against transition, beyond threshold)
         # 140 > (128 + 5) = 133, so override triggered
         await check_for_manual_override(mock_light, 120, 140, None, None, datetime(2023, 1, 1, 21, 0, 0))
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_optimistic_update_filtering(self, mock_light):
@@ -803,7 +803,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         # But old_brightness (130) is within 5 of target (128), so filtered as optimistic update
         mock_light._brightness = 128
         await check_for_manual_override(mock_light, 130, 115, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_user_example_morning_transition_ahead_of_transition(self, mock_light):
@@ -812,7 +812,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
 
         # First adjustment: 50% -> 80% (brightening, with transition direction)
         await check_for_manual_override(mock_light, 128, 204, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
         # Reset for second adjustment
         mock_light._is_overridden = False
@@ -820,28 +820,28 @@ async def real_circadian_light(config, mock_store, mock_entry):
         # Second adjustment: 80% -> 60% (dimming, but still ahead of 50% target)
         # 153 > (128 - 5) = 123, so no override triggered
         await check_for_manual_override(mock_light, 204, 153, None, None, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_color_temp_change_within_threshold_no_override(self, mock_light):
         """Test color temperature change within threshold doesn't trigger override."""
         # Morning transition: color temp change of 50K (within 100K threshold)
         await check_for_manual_override(mock_light, None, None, 3000, 3050, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_color_temp_change_beyond_threshold_override(self, mock_light):
         """Test color temperature change beyond threshold triggers override."""
         # Morning transition: color temp change of 150K (beyond 100K threshold)
         await check_for_manual_override(mock_light, None, None, 3000, 3150, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_color_temp_change_outside_transition_no_override(self, mock_light):
         """Test color temperature change outside transition doesn't trigger override."""
         # Day time (not in transition): large color temp change
         await check_for_manual_override(mock_light, None, None, 3000, 3300, datetime(2023, 1, 1, 14, 0, 0))
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_combined_brightness_and_color_temp_override(self, mock_light):
@@ -852,7 +852,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         # Morning transition: small brightness change but large color temp change
         # Brightness: 140 -> 135 (within threshold), Color temp: 3000 -> 3200 (beyond threshold)
         await check_for_manual_override(mock_light, 140, 135, 3000, 3200, datetime(2023, 1, 1, 9, 0, 0))
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_brightening_before_morning_transition_no_override(self, mock_light):
@@ -864,7 +864,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
 
         # Day time (not in transition): user brightens from 128 to 180 (ahead of morning transition direction)
         await check_for_manual_override(mock_light, 128, 180, None, None, datetime(2023, 1, 1, 14, 0, 0))
-        assert mock_light._is_overridden == False  # No override detected outside transition
+        assert not mock_light._is_overridden  # No override detected outside transition
 
     @pytest.mark.asyncio
     async def test_dimming_before_evening_transition_no_override(self, mock_light):
@@ -876,7 +876,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
 
         # Day time (not in transition): user dims from 255 to 180 (ahead of evening transition direction)
         await check_for_manual_override(mock_light, 255, 180, None, None, datetime(2023, 1, 1, 14, 0, 0))
-        assert mock_light._is_overridden == False  # No override detected outside transition
+        assert not mock_light._is_overridden  # No override detected outside transition
 
     @pytest.mark.asyncio
     async def test_evening_transition_start_detects_ahead_override(self, mock_light):
@@ -915,7 +915,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
                     mock_light._is_overridden = True
 
         # With the fix, override should be detected
-        assert mock_light._is_overridden == True  # Should be detected as overridden
+        assert mock_light._is_overridden  # Should be detected as overridden
 
     @pytest.mark.asyncio
     async def test_morning_transition_start_detects_ahead_override(self, mock_light):
@@ -952,7 +952,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
                     mock_light._is_overridden = True
 
         # With the fix, override should be detected
-        assert mock_light._is_overridden == True  # Should be detected as overridden
+        assert mock_light._is_overridden  # Should be detected as overridden
 
     @pytest.mark.asyncio
     async def test_evening_transition_catch_up_clears_override(self, mock_light):
@@ -974,7 +974,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         mock_light.async_update_light = AsyncMock()
 
         # Simulate evening transition where target has caught up to manual level
-        now = datetime(2023, 1, 1, 20, 30, 0)  # Later in evening transition
+        datetime(2023, 1, 1, 20, 30, 0)  # Later in evening transition
         mode = "evening_transition"
         target_brightness_255 = 51  # 20% - below manual 25%, so caught up
 
@@ -990,7 +990,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
                 await mock_light.async_update_light()  # Resume following transition
 
         # Override should be cleared since target (51) <= current (64)
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
         # Light should update to follow the transition now
         mock_light.async_update_light.assert_called_once()
 
@@ -1014,7 +1014,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         mock_light.async_update_light = AsyncMock()
 
         # Simulate morning transition where target has caught up to manual level
-        now = datetime(2023, 1, 1, 6, 30, 0)  # Later in morning transition
+        datetime(2023, 1, 1, 6, 30, 0)  # Later in morning transition
         mode = "morning_transition"
         target_brightness_255 = 230  # 90% - above manual 80%, so caught up
 
@@ -1030,7 +1030,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
                 await mock_light.async_update_light()  # Resume following transition
 
         # Override should be cleared since target (230) >= current (204) in morning transition
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
         # Light should update to follow the transition now
         mock_light.async_update_light.assert_called_once()
 
@@ -1075,7 +1075,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
                     mock_light._is_overridden = True
 
         # With the fix, override should be detected
-        assert mock_light._is_overridden == True  # Should be detected as overridden
+        assert mock_light._is_overridden  # Should be detected as overridden
 
     @pytest.mark.asyncio
     async def test_morning_transition_start_detects_color_temp_ahead_override(self, mock_light):
@@ -1117,7 +1117,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
                     mock_light._is_overridden = True
 
         # With the fix, override should be detected
-        assert mock_light._is_overridden == True  # Should be detected as overridden
+        assert mock_light._is_overridden  # Should be detected as overridden
 
     @pytest.mark.asyncio
     async def test_evening_transition_color_temp_catch_up_clears_override(self, mock_light):
@@ -1139,7 +1139,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         mock_light.async_update_light = AsyncMock()
 
         # Simulate evening transition where target color temp has caught up to manual level
-        now = datetime(2023, 1, 1, 20, 30, 0)  # Later in evening transition
+        datetime(2023, 1, 1, 20, 30, 0)  # Later in evening transition
         mode = "evening_transition"
         target_color_temp = 1800  # 1800K - cooler than manual 2000K, so caught up
 
@@ -1155,7 +1155,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
                 await mock_light.async_update_light()  # Resume following transition
 
         # Override should be cleared since target (1800) <= current (2000) in evening transition
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
         # Light should update to follow the transition now
         mock_light.async_update_light.assert_called_once()
 
@@ -1179,7 +1179,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
         mock_light.async_update_light = AsyncMock()
 
         # Simulate morning transition where target color temp has caught up to manual level
-        now = datetime(2023, 1, 1, 6, 30, 0)  # Later in morning transition
+        datetime(2023, 1, 1, 6, 30, 0)  # Later in morning transition
         mode = "morning_transition"
         target_color_temp = 3000  # 3000K - warmer than manual 2500K, so caught up
 
@@ -1195,7 +1195,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
                 await mock_light.async_update_light()  # Resume following transition
 
         # Override should be cleared since target (3000) >= current (2500) in morning transition
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
         # Light should update to follow the transition now
         mock_light.async_update_light.assert_called_once()
 
@@ -1212,7 +1212,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
 
         # Test at exact morning transition end time (7:00 AM)
         # Should return day brightness (255), not intermediate value
-        morning_end_time = datetime(2023, 1, 1, 7, 0, 0)  # Exactly at transition end
+        datetime(2023, 1, 1, 7, 0, 0)  # Exactly at transition end
         brightness = calculate_brightness(0, {}, config, 255, 25, "test.light")
 
         # At transition end, should be exactly the day target
@@ -1231,7 +1231,7 @@ async def real_circadian_light(config, mock_store, mock_entry):
 
         # Test at exact evening transition end time (9:00 PM)
         # Should return night brightness (25), not intermediate value
-        evening_end_time = datetime(2023, 1, 1, 21, 0, 0)  # Exactly at transition end
+        datetime(2023, 1, 1, 21, 0, 0)  # Exactly at transition end
         brightness = calculate_brightness(0, {}, config, 255, 25, "test.light")
 
         # At transition end, should be exactly the night target
@@ -1405,8 +1405,8 @@ async def real_circadian_light(config, mock_store, mock_entry):
         }
 
         # Test that stable periods return exact target values
-        day_time = datetime(2023, 1, 1, 14, 0, 0)  # 2 PM - stable day
-        night_time = datetime(2023, 1, 1, 2, 0, 0)  # 2 AM - stable night
+        datetime(2023, 1, 1, 14, 0, 0)  # 2 PM - stable day
+        datetime(2023, 1, 1, 2, 0, 0)  # 2 AM - stable night
 
         day_brightness = calculate_brightness(0, {}, config, 255, 25, "test.light")
         assert day_brightness == 255  # Should be exact day target
@@ -1550,7 +1550,7 @@ class TestOfflineOnlineRecovery:
 
         # Override detected, so no update should occur
         mock_light.async_update_light.assert_not_called()
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_evening_transition_offline_online_ahead_of_transition(self, mock_light):
@@ -1807,7 +1807,7 @@ class TestOfflineOnlineRecovery:
 
         # Override detected, so no update should occur
         mock_light.async_update_light.assert_not_called()
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_morning_transition_offline_online_ahead_of_transition(self, mock_light):
@@ -1943,7 +1943,7 @@ class TestOfflineOnlineRecovery:
 
         # Override detected, so no update should occur
         mock_light.async_update_light.assert_not_called()
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
 
     @pytest.mark.asyncio
     async def test_offline_online_morning_transition_ahead_of_transition(self, mock_light):
@@ -2226,7 +2226,7 @@ class TestOfflineOnlineRecovery:
 
         # Simulate the brightness calculation during evening transition
         # This replicates the logic from _async_calculate_and_apply_brightness
-        now = datetime(2023, 1, 1, 20, 0, 0)  # Evening time
+        datetime(2023, 1, 1, 20, 0, 0)  # Evening time
         mode = "evening_transition"
         is_currently_transition = mode in ["morning_transition", "evening_transition"]
 
@@ -2251,7 +2251,7 @@ class TestOfflineOnlineRecovery:
         # The logic checks: if not is_morning and target_brightness_255 <= current_brightness
         # Since target (250) > current (64), it should NOT clear the override
         mock_light.async_update_light.assert_not_called()
-        assert mock_light._is_overridden == True  # Override should remain
+        assert mock_light._is_overridden  # Override should remain
 
 
 class TestConfigReconfiguration:
@@ -2542,7 +2542,7 @@ class TestOverrideExpirationScheduling:
 
         # With fixed implementation: override should have expired automatically at 8:00 AM
         # This test will FAIL with current code (demonstrating the bug)
-        assert check_override_expiration(mock_light, now=current_time) == True  # Override should be expired
+        assert check_override_expiration(mock_light, now=current_time)  # Override should be expired
 
     @pytest.mark.asyncio
     async def test_override_expires_automatically_at_evening_clear_time(self, mock_light):
@@ -2562,7 +2562,7 @@ class TestOverrideExpirationScheduling:
 
         # With fixed implementation: override should have expired automatically at 2:00 AM
         # This test will FAIL with current code (demonstrating the bug)
-        assert check_override_expiration(mock_light, now=current_time) == True  # Override should be expired
+        assert check_override_expiration(mock_light, now=current_time)  # Override should be expired
 
     @pytest.mark.asyncio
     async def test_override_expires_on_state_change_after_clear_time(self, mock_light):
@@ -2583,7 +2583,7 @@ class TestOverrideExpirationScheduling:
         if mock_light._is_overridden and check_override_expiration(mock_light, now=current_time):
             mock_light._is_overridden = False  # Simulate clearing override
 
-        assert mock_light._is_overridden == False  # Override cleared on state change
+        assert not mock_light._is_overridden  # Override cleared on state change
 
     @pytest.mark.asyncio
     async def test_override_scheduled_expiration_morning(self, mock_light):
@@ -2644,7 +2644,7 @@ class TestOverrideExpirationScheduling:
             mock_light._is_overridden = False
             await mock_light.async_force_update_circadian()
 
-        assert mock_light._is_overridden == False
+        assert not mock_light._is_overridden
         mock_light.async_force_update_circadian.assert_called_once()
 
     @pytest.mark.asyncio
@@ -2678,13 +2678,13 @@ class TestOverrideExpirationScheduling:
         current_time = datetime(2023, 1, 2, 1, 0, 0)
 
         # Override should not expire yet
-        assert check_override_expiration(mock_light, now=current_time) == False
+        assert not check_override_expiration(mock_light, now=current_time)
 
         # Advance time to 3:00 AM (after clear time)
         current_time = datetime(2023, 1, 2, 3, 0, 0)
 
         # Override should expire
-        assert check_override_expiration(mock_light, now=current_time) == True
+        assert check_override_expiration(mock_light, now=current_time)
 
     @pytest.mark.asyncio
     async def test_override_expiration_timezone_robustness(self, mock_light):
@@ -2698,7 +2698,7 @@ class TestOverrideExpirationScheduling:
         current_time = datetime(2023, 3, 12, 9, 0, 0)  # After morning clear time
 
         # Should still work correctly despite timezone complexities
-        assert check_override_expiration(mock_light, now=current_time) == True
+        assert check_override_expiration(mock_light, now=current_time)
 
 
 
@@ -2788,7 +2788,7 @@ class TestServerRestartRecovery:
         await async_load_override_state(mock_light)
 
         # Should restore valid override for this light (8:15 > 8:00 last clear time), not call force update
-        assert mock_light._is_overridden == True
+        assert mock_light._is_overridden
         mock_light.async_force_update_circadian.assert_not_called()
 
     @pytest.mark.asyncio
@@ -2885,7 +2885,7 @@ class TestOverrideClearSetsExactCircadianTargets:
             await real_circadian_light.async_clear_manual_override()
 
         # Verify override was cleared
-        assert real_circadian_light._is_overridden == False
+        assert not real_circadian_light._is_overridden
 
         # Verify async_update_light was called with exact circadian targets
         real_circadian_light.async_update_light.assert_called_once()
@@ -2923,7 +2923,7 @@ class TestOverrideClearSetsExactCircadianTargets:
             await real_circadian_light.async_clear_manual_override()
 
         # Verify override was cleared
-        assert real_circadian_light._is_overridden == False
+        assert not real_circadian_light._is_overridden
 
         # For non-Kasa lights that are off, async_update_light is called but service_data gets cleared
         # So we check that it was called but with empty service_data (indicating skip)
@@ -2963,7 +2963,7 @@ class TestOverrideClearSetsExactCircadianTargets:
             await real_circadian_light.async_clear_manual_override()
 
         # Verify override was cleared
-        assert real_circadian_light._is_overridden == False
+        assert not real_circadian_light._is_overridden
 
         # Verify async_update_light was called with exact circadian targets
         real_circadian_light.async_update_light.assert_called_once()

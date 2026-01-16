@@ -54,11 +54,11 @@ async def test_evening_transition_start_stale_state_sends_command(mock_hass_with
     with patch('homeassistant.util.dt.now') as mock_now, \
          patch('custom_components.smart_circadian_lighting.state_management.dt_util.now') as mock_dt_util, \
          patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_light_dt_util, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_async_call_later, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
-         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
+         patch('custom_components.smart_circadian_lighting.state_management.async_call_later'), \
+         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send'), \
+         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()), \
          patch.object(light._hass.states, 'get') as mock_states_get, \
-         patch.object(light, 'async_write_ha_state') as mock_write_state:
+         patch.object(light, 'async_write_ha_state'):
 
         # Create State objects using our fixture factory to avoid global mocking
         initial_state = mock_state_factory("light.test_light", STATE_ON, {ATTR_BRIGHTNESS: 255})
@@ -148,11 +148,11 @@ async def test_morning_alarm_dim_near_end_catchup(mock_hass_with_services, mock_
     with patch('homeassistant.util.dt.now') as mock_now, \
          patch('custom_components.smart_circadian_lighting.state_management.dt_util.now') as mock_dt_util, \
          patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_light_dt_util, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_async_call_later, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
-         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
+         patch('custom_components.smart_circadian_lighting.state_management.async_call_later'), \
+         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send'), \
+         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()), \
          patch.object(light._hass.states, 'get') as mock_states_get, \
-         patch.object(light, 'async_write_ha_state') as mock_write_state, \
+         patch.object(light, 'async_write_ha_state'), \
          patch.object(light._hass, 'async_create_task', return_value=None):
 
         # Create State objects using our fixture factory to avoid global mocking
@@ -249,11 +249,11 @@ async def test_transition_start_ahead_adjustment_override(mock_hass_with_service
     with patch('homeassistant.util.dt.now') as mock_now, \
          patch('custom_components.smart_circadian_lighting.state_management.dt_util.now') as mock_dt_util, \
          patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_light_dt_util, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_async_call_later, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
-         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
+         patch('custom_components.smart_circadian_lighting.state_management.async_call_later'), \
+         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send'), \
+         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()), \
          patch.object(light._hass.states, 'get') as mock_states_get, \
-         patch.object(light, 'async_write_ha_state') as mock_write_state:
+         patch.object(light, 'async_write_ha_state'):
 
         # Calculate actual target at transition start: night + (day - night) * (300/2700) ≈ 25.5 + 229.5 * 0.111 ≈ 50.95
         # Set brightness slightly higher than target (same direction as morning transition)
@@ -287,8 +287,8 @@ async def test_transition_start_ahead_adjustment_override(mock_hass_with_service
 ])
 @pytest.mark.asyncio
 async def test_override_persists_through_single_transition_cycle(
-    mock_hass_with_services, 
-    mock_config_entry_factory, 
+    mock_hass_with_services,
+    mock_config_entry_factory,
     mock_state_factory,
     transition_type,
     user_brightness,
@@ -306,14 +306,14 @@ async def test_override_persists_through_single_transition_cycle(
     at transition start, the clearing condition is satisfied and the override gets cleared
     before it has a chance to take effect.
 
-    Bug symptom: User dims/brightens lights during evening/morning transition → system 
-    detects override → system immediately clears override in same cycle → brightness jumps 
+    Bug symptom: User dims/brightens lights during evening/morning transition → system
+    detects override → system immediately clears override in same cycle → brightness jumps
     back toward circadian target.
 
     Expected behavior: Override detected → override persists through at least the current
     cycle → override only clears when circadian target naturally catches up to manual
     brightness on subsequent cycles.
-    
+
     Test parameters:
     - transition_type: "morning" or "evening"
     - user_brightness: brightness value the user set (in 0-255 scale)
@@ -358,11 +358,11 @@ async def test_override_persists_through_single_transition_cycle(
     with patch('homeassistant.util.dt.now') as mock_now, \
          patch('custom_components.smart_circadian_lighting.state_management.dt_util.now') as mock_dt_util, \
          patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_light_dt_util, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_async_call_later, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send') as mock_dispatcher_send, \
-         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()) as mock_er_get, \
+         patch('custom_components.smart_circadian_lighting.state_management.async_call_later'), \
+         patch('custom_components.smart_circadian_lighting.state_management.async_dispatcher_send'), \
+         patch('custom_components.smart_circadian_lighting.light.er.async_get', return_value=MagicMock()), \
          patch.object(light._hass.states, 'get') as mock_states_get, \
-         patch.object(light, 'async_write_ha_state') as mock_write_state, \
+         patch.object(light, 'async_write_ha_state'), \
          patch.object(light._hass, 'async_create_task', return_value=None):
 
         ahead_brightness_state = mock_state_factory(

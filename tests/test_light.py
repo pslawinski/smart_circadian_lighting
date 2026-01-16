@@ -460,7 +460,7 @@ async def test_zwave_override_cleared_when_light_turns_off(mock_hass_with_servic
         await light._async_entity_state_changed(event)
 
         # Verify override was cleared
-        assert light._is_overridden == False
+        assert not light._is_overridden
         mock_save.assert_called_once()
         # Verify parameter 18 was synced to circadian (255)
         # 255 * 99 / 255 = 99
@@ -529,8 +529,8 @@ async def test_zwave_soft_override_persists_when_light_turns_off(mock_hass_with_
         await light._async_entity_state_changed(event)
 
         # Verify override PERSISTED
-        assert light._is_overridden == True
-        assert light._is_soft_override == True
+        assert light._is_overridden
+        assert light._is_soft_override
         mock_save.assert_called_once()
         # Verify parameter 18 was synced (to the pinned value)
         # 64 * 99 / 255 = 24.84 -> 24
@@ -624,8 +624,8 @@ class TestZwaveTransitionBehavior:
              patch.object(light, 'async_write_ha_state', new_callable=MagicMock), \
              patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_now, \
              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
-             patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_call_later, \
-             patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state', new_callable=AsyncMock) as mock_save_override:
+             patch('custom_components.smart_circadian_lighting.state_management.async_call_later'), \
+             patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state', new_callable=AsyncMock):
 
             mock_now.return_value = test_time
             mock_datetime.now.return_value = test_time
@@ -687,8 +687,8 @@ class TestZwaveTransitionBehavior:
              patch.object(light, 'async_write_ha_state'), \
              patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_now, \
              patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
-             patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_call_later, \
-             patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state') as mock_save_override:
+             patch('custom_components.smart_circadian_lighting.state_management.async_call_later'), \
+             patch('custom_components.smart_circadian_lighting.state_management.async_save_override_state'):
 
             mock_now.return_value = test_time
             mock_datetime.now.return_value = test_time

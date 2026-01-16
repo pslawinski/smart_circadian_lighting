@@ -170,10 +170,10 @@ def mock_config_entry():
 
 def create_states_get_side_effect(entity_states: dict) -> callable:
     """Create a side_effect function for states.get() that handles multiple entity IDs.
-    
+
     Args:
         entity_states: Dict mapping entity_id to State/MockState object
-    
+
     Returns:
         A side_effect function that returns the appropriate state for each entity_id
     """
@@ -187,7 +187,7 @@ def create_states_get_side_effect(entity_states: dict) -> callable:
 @pytest.fixture
 def mock_states_manager():
     """Factory for creating properly configured mock states with side_effect.
-    
+
     Usage:
         import asyncio
         mock_hass = MagicMock()

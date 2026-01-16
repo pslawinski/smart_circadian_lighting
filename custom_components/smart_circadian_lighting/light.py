@@ -308,23 +308,19 @@ class CircadianLight(LightEntity):
                     # Light just turned on
                     should_update = False
 
-                    if getattr(self, "_is_soft_override", False):
-                        _LOGGER.debug(
-                            f"[{self._light_entity_id}] Light turned on with soft override active. Skipping immediate circadian update to respect manual brightness."
-                        )
-                        should_update = False
-                    elif self._last_set_brightness is not None:
-                        current_brightness = new_state.attributes.get(ATTR_BRIGHTNESS)
-                        current_color_temp = new_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)
+                    current_brightness = new_state.attributes.get(ATTR_BRIGHTNESS)
+                    current_color_temp = new_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)
 
-                        # Match brightness within threshold
+                    # Check if it matches what we last set.
+                    # If it does, we want to update even if a soft override was previously active.
+                    matches_last_set = False
+                    if self._last_set_brightness is not None:
                         brightness_matches = (
                             current_brightness is not None
                             and abs(current_brightness - self._last_set_brightness)
                             <= self.max_quantization_error
                         )
 
-                        # Match color temp if it was set
                         color_temp_matches = True
                         if self._last_set_color_temp is not None:
                             color_temp_matches = (
@@ -334,10 +330,18 @@ class CircadianLight(LightEntity):
                             )
 
                         if brightness_matches and color_temp_matches:
-                            _LOGGER.debug(
-                                f"[{self._light_entity_id}] Light turned on with last set values, updating to current circadian."
-                            )
-                            should_update = True
+                            matches_last_set = True
+
+                    if matches_last_set:
+                        _LOGGER.debug(
+                            f"[{self._light_entity_id}] Light turned on with last set values, updating to current circadian."
+                        )
+                        should_update = True
+                    elif getattr(self, "_is_soft_override", False):
+                        _LOGGER.debug(
+                            f"[{self._light_entity_id}] Light turned on with soft override active. Skipping immediate circadian update to respect manual brightness."
+                        )
+                        should_update = False
                     elif self._color_temp_schedule:  # Color temp enabled
                         should_update = True
 

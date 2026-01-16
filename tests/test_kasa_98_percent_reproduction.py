@@ -1,11 +1,14 @@
 
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch, AsyncMock
 from homeassistant.components.light import ATTR_BRIGHTNESS
-from homeassistant.const import STATE_OFF, STATE_ON
-from custom_components.smart_circadian_lighting.light import CircadianLight
+from homeassistant.const import STATE_OFF
+
 from custom_components.smart_circadian_lighting.const import DOMAIN
+from custom_components.smart_circadian_lighting.light import CircadianLight
+
 
 @pytest.mark.asyncio
 async def test_transition_completes_without_override_when_off(mock_hass_with_services, mock_config_entry_factory, mock_state_factory):
@@ -36,25 +39,25 @@ async def test_transition_completes_without_override_when_off(mock_hass_with_ser
     light.hass = hass
     light.entity_id = f"{DOMAIN}.test_kasa"
     light._is_testing = True # Use MIN_UPDATE_INTERVAL (5s)
-    
+
     hass.data[DOMAIN] = {entry.entry_id: {"circadian_lights": [light], "config": config}}
 
     mock_entity_entry = MagicMock()
     mock_entity_entry.platform = "kasa_smart_dim"
-    
+
     with patch('homeassistant.helpers.entity_registry.async_get') as mock_er_get, \
          patch('homeassistant.util.dt.now') as mock_now, \
          patch('custom_components.smart_circadian_lighting.light.dt_util.now') as mock_light_dt_util, \
          patch('custom_components.smart_circadian_lighting.circadian_logic.datetime') as mock_datetime, \
-         patch('custom_components.smart_circadian_lighting.state_management.async_call_later') as mock_call_later:
+         patch('custom_components.smart_circadian_lighting.state_management.async_call_later'):
 
         mock_registry = MagicMock()
         mock_registry.async_get.return_value = mock_entity_entry
         mock_er_get.return_value = mock_registry
-        
+
         # Start just before transition
         current_time = datetime(2026, 1, 1, 5, 14, 55)
-        
+
         # Initial state: Light is OFF, brightness is at Night level (10% = 26/255)
         current_light_brightness = 26
 
@@ -64,7 +67,7 @@ async def test_transition_completes_without_override_when_off(mock_hass_with_ser
             return None
 
         hass.states.get = MagicMock(side_effect=get_state)
-        
+
         mock_now.return_value = current_time
         mock_light_dt_util.return_value = current_time
         mock_datetime.now.return_value = current_time
@@ -84,13 +87,13 @@ async def test_transition_completes_without_override_when_off(mock_hass_with_ser
             mock_now.return_value = current_time
             mock_light_dt_util.return_value = current_time
             mock_datetime.now.return_value = current_time
-            
+
             # Update the reported brightness of the light to match the last calculated target
             # (Simulating Kasa reporting its "preloaded" state)
             current_light_brightness = light._brightness
-            
+
             await light._async_calculate_and_apply_brightness()
-            
+
             if minute < 60:
                 assert not light._is_overridden, f"Override triggered at {current_time.time()} when light is OFF"
             else:
